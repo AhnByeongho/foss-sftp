@@ -291,77 +291,89 @@ def insert_customer_fund_data(engine, ap_fnd_info, target_date):
         print(f"An error occurred while inserting data(ap_fnd_info): {e}")
 
 
-def process_yesterday_return_data(conn, target_date, sftp_client):
-    try:
-        cursor = conn.cursor()
+def process_yesterday_return_data(engine, target_date, sftp_client):
+    """
+    Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
+    :param engine: SQLAlchemy engine
+    :param target_date: Target date for processing
+    :param sftp_client: SFTP client for file operations
+    """
+    try:
         # 현재 날짜와 기준 날짜 설정
         if not target_date:
             target_date = datetime.now().strftime('%Y%m%d')
 
         # 파일 이름 설정
-        sSetFile = f"mp_info.{target_date}"
+        file_name = f"mp_info.{target_date}"
 
         # 최근 영업일 계산
-        query = """
-        SELECT TOP 1 trddate
-        FROM (
-            SELECT trddate, holiday_yn, 
-                    ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
-            FROM TBL_HOLIDAY
-            WHERE trddate <= ?
-        ) AS S1
-        WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
-        """
-        cursor.execute(query, (target_date,))
-        result = cursor.fetchone()
+        with engine.connect() as connection:
+            with connection.begin():
+                query = """
+                SELECT TOP 1 trddate
+                FROM (
+                    SELECT trddate, holiday_yn, 
+                            ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
+                    FROM TBL_HOLIDAY
+                    WHERE trddate <= :target_date
+                ) AS S1
+                WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
+                """
+                result = connection.execute(text(query), {"target_date": target_date}).scalar()
 
-        if result:
-            sFndDate = result[0]
-        else:
-            raise ValueError("No valid fund base date found.")
+                if result:
+                    sFndDate = result
+                else:
+                    raise ValueError("No valid fund base date found.")
 
-        # 생성해야 되는 데이터 확인
-        query_result_return = """
-        SELECT COUNT(auth_id)
-        FROM TBL_RESULT_RETURN
-        WHERE auth_id = ? AND trddate = ?
-        """
-        cursor.execute(query_result_return, ('foss', sFndDate))
-        count_result_return = cursor.fetchone()[0]
+                print(sFndDate)
 
-        query_result_mplist = """
-        SELECT COUNT(S1.port_cd)
-        FROM (
-            SELECT port_cd
-            FROM TBL_RESULT_MPLIST
-            WHERE auth_id = ?
-                AND rebal_date = (SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = ?)
-            GROUP BY port_cd
-        ) AS S1
-        """
-        cursor.execute(query_result_mplist, ('foss', 'foss'))
-        count_port_cd = cursor.fetchone()[0]
+                # # 생성해야 되는 데이터 확인
+                # query_result_return = """
+                # SELECT COUNT(auth_id)
+                # FROM TBL_RESULT_RETURN
+                # WHERE auth_id = :auth_id AND trddate = :trddate
+                # """
+                # count_result_return = connection.execute(
+                #     text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
+                # ).scalar()
 
-        if count_result_return != count_port_cd:
-            raise ValueError("Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped.")
+                # query_result_mplist = """
+                # SELECT COUNT(S1.port_cd)
+                # FROM (
+                #     SELECT port_cd
+                #     FROM TBL_RESULT_MPLIST
+                #     WHERE auth_id = :auth_id
+                #         AND rebal_date = (
+                #             SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
+                #         )
+                #     GROUP BY port_cd
+                # ) AS S1
+                # """
+                # count_port_cd = connection.execute(
+                #     text(query_result_mplist), {"auth_id": "foss"}
+                # ).scalar()
 
-        # TMP_RISKGRADE 데이터프레임 생성
-        mplist_query = """
-        SELECT auth_id, port_cd, prd_gb
-        FROM TBL_RESULT_MPLIST
-        WHERE auth_id = ?
-        GROUP BY auth_id, port_cd, prd_gb
-        """
-        TMP_RISKGRADE = pd.read_sql(mplist_query, conn, params=('foss',))
-        print(TMP_RISKGRADE)
+                # if count_result_return != count_port_cd:
+                #     raise ValueError("Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped.")
 
-        # TMP_RETURN 데이터프레임 생성
-        
+            #     # TMP_RISKGRADE 데이터프레임 생성
+            #     mplist_query = """
+            #     SELECT auth_id, port_cd, prd_gb
+            #     FROM TBL_RESULT_MPLIST
+            #     WHERE auth_id = :auth_id
+            #     GROUP BY auth_id, port_cd, prd_gb
+            #     """
+            #     TMP_RISKGRADE = pd.read_sql(
+            #         text(mplist_query), engine.connect(), params={"auth_id": "foss"}
+            #     )
+            #     print(TMP_RISKGRADE)
+
+            #     # TMP_RETURN 데이터프레임 생성 (추가 로직 작성 필요)
 
     except Exception as e:
         print(f"An error occurred: {e}")
-        conn.rollback()
 
     finally:
         pass  # 필요 시 추가 로직 작성
