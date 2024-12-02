@@ -143,7 +143,7 @@ try:
             # 리밸런싱 송신 처리
             process_rebalcus(engine, target_date, sftp)
 
-            # 수동 리밸런싱 
+            # 수동 리밸런싱
             # manual_customer_ids = "20478,8611,9105"
             # manual_rebal_yn = "Y"
             # process_rebalcus(engine, target_date, sftp, manual_customer_ids, manual_rebal_yn)
@@ -159,7 +159,6 @@ try:
         # 잘못된 process_type이 입력되었을 경우
         else:
             print(f"Invalid process_type: {process_type}. No process executed.")
-
 
         # # ---------------------------- FTP 처리 LOG INSERT ---------------------------- #
         # log_ftp_process(conn, batch_spid, running_key)
