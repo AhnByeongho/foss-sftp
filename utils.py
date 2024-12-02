@@ -112,7 +112,9 @@ def insert_fnd_list_data(engine, fnd_list, target_date):
                 unique_rows = set()  # 중복 제거를 위한 집합
                 for row in csv_reader:
                     if len(row) == 12:  # 데이터 유효성 검사
-                        unique_rows.add(tuple(row))  # 리스트를 튜플로 변환 후 집합에 추가
+                        unique_rows.add(
+                            tuple(row)
+                        )  # 리스트를 튜플로 변환 후 집합에 추가
 
                 # 삽입 쿼리
                 insert_query = """
@@ -183,7 +185,9 @@ def insert_customer_account_data(engine, ap_acc_info, target_date):
                 unique_rows = set()  # 중복 제거를 위한 집합
                 for row in csv_reader:
                     if len(row) == 8:  # 데이터 유효성 검사
-                        unique_rows.add(tuple(row))  # 리스트를 튜플로 변환 후 집합에 추가
+                        unique_rows.add(
+                            tuple(row)
+                        )  # 리스트를 튜플로 변환 후 집합에 추가
 
                 # 삽입 쿼리
                 insert_query = """
@@ -255,7 +259,9 @@ def insert_customer_fund_data(engine, ap_fnd_info, target_date):
                 unique_rows = set()  # 중복 제거를 위한 집합
                 for row in csv_reader:
                     if len(row) == 5:  # 데이터 유효성 검사
-                        unique_rows.add(tuple(row))  # 리스트를 튜플로 변환 후 집합에 추가
+                        unique_rows.add(
+                            tuple(row)
+                        )  # 리스트를 튜플로 변환 후 집합에 추가
 
                 # 삽입 쿼리
                 insert_query = """
@@ -291,81 +297,373 @@ def insert_customer_fund_data(engine, ap_fnd_info, target_date):
         print(f"An error occurred while inserting data(ap_fnd_info): {e}")
 
 
-def process_yesterday_return_data(conn, target_date, sftp_client):
-    try:
-        cursor = conn.cursor()
+def process_yesterday_return_data(engine, target_date, sftp_client):
+    """
+    Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
+    :param engine: SQLAlchemy engine
+    :param target_date: Target date for processing
+    :param sftp_client: SFTP client for file operations
+    """
+    try:
         # 현재 날짜와 기준 날짜 설정
         if not target_date:
-            target_date = datetime.now().strftime('%Y%m%d')
+            target_date = datetime.now().strftime("%Y%m%d")
 
         # 파일 이름 설정
         sSetFile = f"mp_info.{target_date}"
 
         # 최근 영업일 계산
-        query = """
-        SELECT TOP 1 trddate
-        FROM (
-            SELECT trddate, holiday_yn, 
-                    ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
-            FROM TBL_HOLIDAY
-            WHERE trddate <= ?
-        ) AS S1
-        WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
-        """
-        cursor.execute(query, (target_date,))
-        result = cursor.fetchone()
+        with engine.connect() as connection:
+            with connection.begin():
+                query = """
+                SELECT TOP 1 trddate
+                FROM (
+                    SELECT trddate, holiday_yn, 
+                            ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
+                    FROM TBL_HOLIDAY
+                    WHERE trddate <= :target_date
+                ) AS S1
+                WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
+                """
+                result = connection.execute(
+                    text(query), {"target_date": target_date}
+                ).scalar()
 
-        if result:
-            sFndDate = result[0]
-        else:
-            raise ValueError("No valid fund base date found.")
+                if result:
+                    sFndDate = result
+                else:
+                    raise ValueError("No valid fund base date found.")
 
-        # 생성해야 되는 데이터 확인
-        query_result_return = """
-        SELECT COUNT(auth_id)
-        FROM TBL_RESULT_RETURN
-        WHERE auth_id = ? AND trddate = ?
-        """
-        cursor.execute(query_result_return, ('foss', sFndDate))
-        count_result_return = cursor.fetchone()[0]
+                # 생성해야 되는 데이터 확인
+                query_result_return = """
+                SELECT COUNT(auth_id)
+                FROM TBL_RESULT_RETURN
+                WHERE auth_id = :auth_id AND trddate = :trddate
+                """
+                count_result_return = connection.execute(
+                    text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
+                ).scalar()
 
-        query_result_mplist = """
-        SELECT COUNT(S1.port_cd)
-        FROM (
-            SELECT port_cd
-            FROM TBL_RESULT_MPLIST
-            WHERE auth_id = ?
-                AND rebal_date = (SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = ?)
-            GROUP BY port_cd
-        ) AS S1
-        """
-        cursor.execute(query_result_mplist, ('foss', 'foss'))
-        count_port_cd = cursor.fetchone()[0]
+                query_result_mplist = """
+                SELECT COUNT(S1.port_cd)
+                FROM (
+                    SELECT port_cd
+                    FROM TBL_RESULT_MPLIST
+                    WHERE auth_id = :auth_id
+                        AND rebal_date = (
+                            SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
+                        )
+                    GROUP BY port_cd
+                ) AS S1
+                """
+                count_port_cd = connection.execute(
+                    text(query_result_mplist), {"auth_id": "foss"}
+                ).scalar()
 
-        if count_result_return != count_port_cd:
-            raise ValueError("Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped.")
+                if count_result_return != count_port_cd:
+                    print(
+                        "Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped."
+                    )
+                    return  # 프로세스 중단
 
-        # TMP_RISKGRADE 데이터프레임 생성
-        mplist_query = """
-        SELECT auth_id, port_cd, prd_gb
-        FROM TBL_RESULT_MPLIST
-        WHERE auth_id = ?
-        GROUP BY auth_id, port_cd, prd_gb
-        """
-        TMP_RISKGRADE = pd.read_sql(mplist_query, conn, params=('foss',))
-        print(TMP_RISKGRADE)
+                # TMP_RISKGRADE 데이터프레임 생성
+                tmp_riskgrade_query = """
+                SELECT 
+                    auth_id, 
+                    port_cd, 
+                    RIGHT(port_cd, 1) AS risk_grade,
+                    prd_gb
+                FROM TBL_RESULT_MPLIST
+                WHERE auth_id = :auth_id
+                GROUP BY auth_id, port_cd, prd_gb
+                """
+                TMP_RISKGRADE = pd.read_sql(
+                    text(tmp_riskgrade_query),
+                    engine.connect(),
+                    params={"auth_id": "foss"},
+                )
 
-        # TMP_RETURN 데이터프레임 생성
-        
+                # TMP_RETURN 데이터프레임 생성
+                terms = [
+                    ("1d", sFndDate, sFndDate),
+                    (
+                        "1m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=1)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "3m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=3)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "6m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=6)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "1y",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(years=1)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    ("all", "20181203", sFndDate),
+                ]
+                valid_terms = [
+                    (term, start, end)
+                    for term, start, end in terms
+                    if pd.to_datetime(start, format="%Y%m%d", errors="coerce")
+                    >= pd.to_datetime("20181204", format="%Y%m%d")
+                    or term == "all"
+                ]
+                term_df = pd.DataFrame(
+                    valid_terms, columns=["term", "start_dt", "end_dt"]
+                )
+
+                result_return_query = """
+                SELECT auth_id, port_cd, trddate, rtn_1d
+                FROM TBL_RESULT_RETURN
+                """
+                TBL_RESULT_RETURN = pd.read_sql(
+                    text(result_return_query), engine.connect()
+                )
+
+                all_returns = []
+
+                # term_df를 사용해 TBL_RESULT_RETURN을 필터링하고 term, start_dt, end_dt 추가
+                for _, term_row in term_df.iterrows():
+                    start_dt = term_row["start_dt"]
+                    end_dt = term_row["end_dt"]
+                    term = term_row["term"]
+
+                    # 기간 조건에 맞는 데이터를 필터링
+                    filtered_return = TBL_RESULT_RETURN[
+                        (TBL_RESULT_RETURN["trddate"] >= start_dt)
+                        & (TBL_RESULT_RETURN["trddate"] <= end_dt)
+                    ].copy()
+                    filtered_return["term"] = term
+                    filtered_return["start_dt"] = start_dt
+                    filtered_return["end_dt"] = end_dt
+
+                    all_returns.append(filtered_return)
+
+                # S3: 모든 필터링된 데이터를 병합
+                S3 = pd.concat(all_returns, ignore_index=True)
+
+                # TMP_RISKGRADE와 S3를 LEFT OUTER JOIN
+                TMP_RETURN = pd.merge(
+                    TMP_RISKGRADE,  # S1
+                    S3,  # S3
+                    on=["auth_id", "port_cd"],  # JOIN 조건
+                    how="left",  # LEFT OUTER JOIN
+                    suffixes=("", "_extra"),
+                )
+
+                # 로그 수익률 계산
+                TMP_RETURN["log_rt"] = np.log(TMP_RETURN["rtn_1d"] + 1)
+
+                TMP_RETURN = TMP_RETURN[
+                    [
+                        "auth_id",
+                        "port_cd",
+                        "risk_grade",
+                        "prd_gb",
+                        "term",
+                        "start_dt",
+                        "end_dt",
+                        "trddate",
+                        "rtn_1d",
+                        "log_rt",
+                    ]
+                ]
+
+                # TMP_PERFORMANCE 데이터프레임 생성
+                TMP_PERFORMANCE = TMP_RETURN.groupby(
+                    ["auth_id", "term", "risk_grade", "prd_gb"], as_index=False
+                ).agg(total_log_rt=("log_rt", "sum"))
+
+                # total_rt 계산: EXP(SUM(log_rt)) * 100 - 100
+                TMP_PERFORMANCE["total_rt"] = (
+                    (np.exp(TMP_PERFORMANCE["total_log_rt"]) * 100) - 100
+                ).round(2)
+
+                TMP_PERFORMANCE = TMP_PERFORMANCE[
+                    ["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]
+                ]
+
+                # TMP_PERFORMANCE에서 term별 데이터 분리
+                tmp_1m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1m"].copy()
+                tmp_3m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "3m"].copy()
+                tmp_6m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "6m"].copy()
+                tmp_1y = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1y"].copy()
+                tmp_all = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "all"].copy()
+                tmp_1d = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1d"].copy()
+
+                # LEFT JOIN 수행
+                merged = tmp_1d.merge(
+                    tmp_1m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_1m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_3m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_3m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_6m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_6m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_1y,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_1y"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_all,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_all"),
+                    how="left",
+                )
+
+                # 열 계산
+                def map_expected_return(row):
+                    if row["risk_grade"] == "1":
+                        return "9.10" if row["prd_gb"] == "f12" else "9.04"
+                    elif row["risk_grade"] == "2":
+                        return "12.40" if row["prd_gb"] == "f12" else "12.53"
+                    elif row["risk_grade"] == "3":
+                        return "16.02" if row["prd_gb"] == "f12" else "16.64"
+                    elif row["risk_grade"] == "4":
+                        return "19.14" if row["prd_gb"] == "f12" else "19.80"
+                    elif row["risk_grade"] == "5":
+                        return "21.15" if row["prd_gb"] == "f12" else "22.99"
+                    return ""
+
+                def map_volatility(row):
+                    if row["risk_grade"] == "1":
+                        return "3.20" if row["prd_gb"] == "f12" else "3.10"
+                    elif row["risk_grade"] == "2":
+                        return "4.46" if row["prd_gb"] == "f12" else "4.57"
+                    elif row["risk_grade"] == "3":
+                        return "6.68" if row["prd_gb"] == "f12" else "6.87"
+                    elif row["risk_grade"] == "4":
+                        return "8.60" if row["prd_gb"] == "f12" else "9.21"
+                    elif row["risk_grade"] == "5":
+                        return "10.90" if row["prd_gb"] == "f12" else "11.51"
+                    return ""
+
+                merged["expected_return"] = merged.apply(map_expected_return, axis=1)
+                merged["volatility"] = merged.apply(map_volatility, axis=1)
+
+                # 데이터 정렬
+                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(
+                    drop=True
+                )
+
+                # 데이터 정리 및 생성
+                merged["lst"] = (
+                    sFndDate
+                    + ";"
+                    + merged["risk_grade"]
+                    + ";"
+                    + merged["prd_gb"].map({"f12": "77", "f11": "61"})
+                    + ";"
+                    + merged["total_rt"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_3m"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_6m"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_1y"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_all"].fillna("").astype(str)
+                    + ";"
+                    + merged["expected_return"]
+                    + ";"
+                    + merged["volatility"]
+                    + ";"
+                    + merged["total_rt_1m"].fillna("").astype(str)
+                    + ";"
+                )
+
+                # idx 컬럼 생성 (정렬 이후)
+                merged["idx"] = merged.index + 1
+
+                # 필요한 열 추출
+                final_df = merged[["idx", "lst"]].copy()
+                final_df["indate"] = datetime.now().strftime("%Y%m%d%H%M%S")
+                final_df["send_filename"] = sSetFile
+                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
+
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
+                )
+
+                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_df.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row["indate"],
+                            "send_filename": row["send_filename"],
+                            "idx": row["idx"],
+                            "lst": row["lst"],
+                        },
+                    )
+                print(
+                    "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
+
+        # SFTP 업로드
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
-        conn.rollback()
+        raise
 
     finally:
-        pass  # 필요 시 추가 로직 작성
-
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_mp_list(conn, target_date, sftp_client):
@@ -374,7 +672,7 @@ def process_mp_list(conn, target_date, sftp_client):
 
         # 기준 날짜 설정
         if not target_date:
-            target_date = datetime.now().strftime('%Y%m%d')
+            target_date = datetime.now().strftime("%Y%m%d")
         print(f"Processing MP List for target date: {target_date}")
 
         sSetFile = f"mp_fnd_info.{target_date}"
@@ -382,13 +680,17 @@ def process_mp_list(conn, target_date, sftp_client):
         sftp_target_path = f"/home/fossDev/robo_data/{sSetFile}"
 
         # FTPResult 테이블 데이터 삽입
-        cursor.execute("""
+        cursor.execute(
+            """
         INSERT INTO #FTPResult (d_code, send_filename, rst)
         VALUES ('BATCH_FOSS_05', ?, '.')
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         # TBL_FOSS_BCPDATA 데이터 삽입
-        cursor.execute("""
+        cursor.execute(
+            """
         INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
         SELECT ?, ?, 
                 ROW_NUMBER() OVER (ORDER BY S1.port_cd ASC),
@@ -415,17 +717,22 @@ def process_mp_list(conn, target_date, sftp_client):
             ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
         WHERE S1.auth_id = 'foss'
         ORDER BY S1.port_cd ASC
-        """, (datetime.now().strftime('%Y%m%d%H%M%S'), sSetFile, target_date))
+        """,
+            (datetime.now().strftime("%Y%m%d%H%M%S"), sSetFile, target_date),
+        )
 
         print("MP List data inserted into TBL_FOSS_BCPDATA successfully.")
 
         # BCP 데이터 조회 및 로컬 파일로 저장
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT lst 
         FROM TBL_FOSS_BCPDATA
         WHERE send_filename = ?
         ORDER BY idx ASC
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         rows = cursor.fetchall()
         if not rows:
@@ -435,7 +742,7 @@ def process_mp_list(conn, target_date, sftp_client):
         # 파일 생성
         with open(local_file_path, "w", newline="", encoding="utf-8") as file:
             for row in rows:
-                file.write(row[0] + '\n')  # 'lst' 컬럼 값만 저장
+                file.write(row[0] + "\n")  # 'lst' 컬럼 값만 저장
 
         print(f"Local file {local_file_path} generated successfully.")
 
@@ -447,11 +754,14 @@ def process_mp_list(conn, target_date, sftp_client):
         print(f"File {sSetFile} uploaded to SFTP successfully.")
 
         # TBL_FOSS_BCPDATA 처리 상태 업데이트
-        cursor.execute("""
+        cursor.execute(
+            """
         UPDATE #FTPResult
         SET rst = 'bcp create success'
         WHERE send_filename = ?
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         conn.commit()
 
@@ -466,37 +776,46 @@ def process_mp_list(conn, target_date, sftp_client):
             print(f"Local file {local_file_path} deleted.")
 
 
-def process_rebalcus(conn, target_date, sftp_client, manual_customer_ids=None, manual_rebal_yn=None):
+def process_rebalcus(
+    conn, target_date, sftp_client, manual_customer_ids=None, manual_rebal_yn=None
+):
     try:
         cursor = conn.cursor()
 
         # 기준 날짜 설정
         if not target_date:
-            target_date = datetime.now().strftime('%Y%m%d')
+            target_date = datetime.now().strftime("%Y%m%d")
         print(f"Processing Rebalancing Data for target date: {target_date}")
 
         # 파일 이름 설정
         sSetFile = f"ap_reval_yn.{target_date}"
-        sInDate = datetime.now().strftime('%Y%m%d%H%M%S')
+        sInDate = datetime.now().strftime("%Y%m%d%H%M%S")
 
         # 리밸런싱 여부 확인
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END 
         FROM TBL_RESULT_MPLIST
         WHERE auth_id = 'foss' AND rebal_date = ? AND prd_gb = 'f12'
-        """, target_date)
+        """,
+            target_date,
+        )
         sRebalDayYN = cursor.fetchone()[0]
 
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END 
         FROM TBL_RESULT_MPLIST
         WHERE auth_id = 'foss' AND rebal_date = ? AND prd_gb = 'f11'
-        """, target_date)
+        """,
+            target_date,
+        )
         sRebalDayYN2 = cursor.fetchone()[0]
 
         # 다음 리밸런싱 날짜 계산
         iOpentDay = 3
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT MIN(trddate)
         FROM (
             SELECT trddate, 
@@ -507,10 +826,13 @@ def process_rebalcus(conn, target_date, sftp_client, manual_customer_ids=None, m
                 AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
         ) AS S1
         WHERE trddate >= ? AND MonthCnt = ?
-        """, (target_date, target_date, iOpentDay))
+        """,
+            (target_date, target_date, iOpentDay),
+        )
         sNRebalDate = cursor.fetchone()[0]
 
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT MIN(trddate)
         FROM (
             SELECT trddate, 
@@ -521,11 +843,14 @@ def process_rebalcus(conn, target_date, sftp_client, manual_customer_ids=None, m
                 AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
         ) AS S1
         WHERE trddate >= ? AND MonthCnt = ?
-        """, (target_date, target_date, iOpentDay))
+        """,
+            (target_date, target_date, iOpentDay),
+        )
         sNRebalDate2 = cursor.fetchone()[0]
 
         # 리밸런싱 데이터 생성
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT customer_id, 
                 customer_id + ';' + 
                 CASE WHEN ? = 'N' THEN 'N'
@@ -541,8 +866,18 @@ def process_rebalcus(conn, target_date, sftp_client, manual_customer_ids=None, m
                 END + ';' + ? + ';' AS lst
         FROM TBL_FOSS_CUSTOMERACCOUNT
         WHERE trddate = ? AND investgb = '61'
-        """, (sRebalDayYN, sRebalDayYN, sNRebalDate, target_date, 
-                sRebalDayYN2, sRebalDayYN2, sNRebalDate2, target_date))
+        """,
+            (
+                sRebalDayYN,
+                sRebalDayYN,
+                sNRebalDate,
+                target_date,
+                sRebalDayYN2,
+                sRebalDayYN2,
+                sNRebalDate2,
+                target_date,
+            ),
+        )
         rows = cursor.fetchall()
 
         # ROW_NUMBER()와 동일한 방식으로 idx 생성
@@ -565,15 +900,20 @@ def process_rebalcus(conn, target_date, sftp_client, manual_customer_ids=None, m
         # 수동 리밸런싱 처리
         if manual_customer_ids and manual_rebal_yn:
             customer_ids = manual_customer_ids.split(",")
-            print(f"Manual rebalancing for customers: {customer_ids} with rebal_yn: {manual_rebal_yn}")
+            print(
+                f"Manual rebalancing for customers: {customer_ids} with rebal_yn: {manual_rebal_yn}"
+            )
             for customer_id in customer_ids:
-                cursor.execute("""
+                cursor.execute(
+                    """
                 UPDATE TBL_FOSS_BCPDATA 
                 SET lst = LEFT(lst, CHARINDEX(';', lst) - 1) + ';' + ? + ';' + ?
                 WHERE send_filename = ? 
                     AND indate = ? 
                     AND LEFT(lst, CHARINDEX(';', lst) - 1) = ?
-                """, (manual_rebal_yn, target_date, sSetFile, sInDate, customer_id))
+                """,
+                    (manual_rebal_yn, target_date, sSetFile, sInDate, customer_id),
+                )
 
         # CSV 파일 저장
         local_file_path = f"{sSetFile}.csv"
@@ -610,10 +950,13 @@ def process_report(conn, target_date, sftp_client):
         print(f"Processing report for target date: {target_date}, File: {sSetFile}")
 
         # #FTPResult 테이블 데이터 삽입
-        cursor.execute("""
+        cursor.execute(
+            """
         INSERT INTO #FTPResult (d_code, send_filename, rst)
         VALUES ('BATCH_FOSS_07', ?, '.')
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         # TBL_FOSS_REPORT 데이터 확인
         cursor.execute("""
@@ -625,7 +968,8 @@ def process_report(conn, target_date, sftp_client):
 
         if report_count >= 1:
             # TBL_FOSS_BCPDATA 데이터 삽입
-            cursor.execute("""
+            cursor.execute(
+                """
             INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
             SELECT ?, ?, 
                     ROW_NUMBER() OVER (ORDER BY (SELECT 1)),
@@ -638,16 +982,21 @@ def process_report(conn, target_date, sftp_client):
                 FROM TBL_FOSS_REPORT
                 WHERE trddate <= CONVERT(VARCHAR(8), GETDATE(), 112)
             )
-            """, (datetime.now().strftime('%Y%m%d%H%M%S'), sSetFile))
+            """,
+                (datetime.now().strftime("%Y%m%d%H%M%S"), sSetFile),
+            )
             print("Report data inserted into TBL_FOSS_BCPDATA successfully.")
 
         # BCP 데이터 조회 및 로컬 파일 저장
-        cursor.execute("""
+        cursor.execute(
+            """
         SELECT lst 
         FROM TBL_FOSS_BCPDATA
         WHERE send_filename = ?
         ORDER BY idx
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         rows = cursor.fetchall()
         local_file_path = f"{sSetFile}.csv"
@@ -665,11 +1014,14 @@ def process_report(conn, target_date, sftp_client):
         print(f"File {sSetFile} uploaded to SFTP successfully.")
 
         # TBL_FOSS_BCPDATA 처리 상태 업데이트
-        cursor.execute("""
+        cursor.execute(
+            """
         UPDATE #FTPResult
         SET rst = 'bcp create success'
         WHERE send_filename = ?
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         conn.commit()
 
@@ -689,17 +1041,20 @@ def process_mp_info_eof(conn, target_date, sftp_client):
 
         # 기준 날짜 설정
         if not target_date:
-            target_date = datetime.now().strftime('%Y%m%d')
+            target_date = datetime.now().strftime("%Y%m%d")
         print(f"Processing MP_INFO_EOF for target date: {target_date}")
 
         # 파일 이름 설정
         sSetFile = f"mp_info_eof.{target_date}"
 
         # #FTPResult 테이블에 데이터 삽입
-        cursor.execute("""
+        cursor.execute(
+            """
         INSERT INTO #FTPResult (d_code, send_filename, rst)
         VALUES ('BATCH_FOSS_08', ?, '.')
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         # 빈 EOF 파일 생성
         local_file_path = f"{sSetFile}.csv"
@@ -715,21 +1070,27 @@ def process_mp_info_eof(conn, target_date, sftp_client):
         print(f"EOF file {sSetFile} uploaded to SFTP successfully.")
 
         # 전송 상태 업데이트
-        cursor.execute("""
+        cursor.execute(
+            """
         UPDATE #FTPResult
         SET rst = 'bcp create success'
         WHERE send_filename = ?
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
 
         conn.commit()
 
     except Exception as e:
         print(f"An error occurred during process_mp_info_eof: {e}")
-        cursor.execute("""
+        cursor.execute(
+            """
         UPDATE #FTPResult
         SET rst = 'bcp create failed'
         WHERE send_filename = ?
-        """, sSetFile)
+        """,
+            sSetFile,
+        )
         conn.rollback()
         raise
 
