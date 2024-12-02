@@ -305,7 +305,7 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
             target_date = datetime.now().strftime('%Y%m%d')
 
         # 파일 이름 설정
-        file_name = f"mp_info.{target_date}"
+        sSetFile = f"mp_info.{target_date}"
 
         # 최근 영업일 계산
         with engine.connect() as connection:
@@ -325,59 +325,240 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                 if result:
                     sFndDate = result
                 else:
-                    raise ValueError("No valid fund base date found.")
+                    raise ValueError("No valid fund base date found.")            
 
-                print(sFndDate)
+                # 생성해야 되는 데이터 확인
+                query_result_return = """
+                SELECT COUNT(auth_id)
+                FROM TBL_RESULT_RETURN
+                WHERE auth_id = :auth_id AND trddate = :trddate
+                """
+                count_result_return = connection.execute(
+                    text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
+                ).scalar()
 
-                # # 생성해야 되는 데이터 확인
-                # query_result_return = """
-                # SELECT COUNT(auth_id)
-                # FROM TBL_RESULT_RETURN
-                # WHERE auth_id = :auth_id AND trddate = :trddate
-                # """
-                # count_result_return = connection.execute(
-                #     text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
-                # ).scalar()
+                query_result_mplist = """
+                SELECT COUNT(S1.port_cd)
+                FROM (
+                    SELECT port_cd
+                    FROM TBL_RESULT_MPLIST
+                    WHERE auth_id = :auth_id
+                        AND rebal_date = (
+                            SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
+                        )
+                    GROUP BY port_cd
+                ) AS S1
+                """
+                count_port_cd = connection.execute(
+                    text(query_result_mplist), {"auth_id": "foss"}
+                ).scalar()
 
-                # query_result_mplist = """
-                # SELECT COUNT(S1.port_cd)
-                # FROM (
-                #     SELECT port_cd
-                #     FROM TBL_RESULT_MPLIST
-                #     WHERE auth_id = :auth_id
-                #         AND rebal_date = (
-                #             SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
-                #         )
-                #     GROUP BY port_cd
-                # ) AS S1
-                # """
-                # count_port_cd = connection.execute(
-                #     text(query_result_mplist), {"auth_id": "foss"}
-                # ).scalar()
+                if count_result_return != count_port_cd:
+                    print("Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped.")
+                    return  # 프로세스 중단
 
-                # if count_result_return != count_port_cd:
-                #     raise ValueError("Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped.")
+                # TMP_RISKGRADE 데이터프레임 생성
+                tmp_riskgrade_query = """
+                SELECT 
+                    auth_id, 
+                    port_cd, 
+                    RIGHT(port_cd, 1) AS risk_grade,
+                    prd_gb
+                FROM TBL_RESULT_MPLIST
+                WHERE auth_id = :auth_id
+                GROUP BY auth_id, port_cd, prd_gb
+                """
+                TMP_RISKGRADE = pd.read_sql(
+                    text(tmp_riskgrade_query), engine.connect(), params={"auth_id": "foss"}
+                )
 
-            #     # TMP_RISKGRADE 데이터프레임 생성
-            #     mplist_query = """
-            #     SELECT auth_id, port_cd, prd_gb
-            #     FROM TBL_RESULT_MPLIST
-            #     WHERE auth_id = :auth_id
-            #     GROUP BY auth_id, port_cd, prd_gb
-            #     """
-            #     TMP_RISKGRADE = pd.read_sql(
-            #         text(mplist_query), engine.connect(), params={"auth_id": "foss"}
-            #     )
-            #     print(TMP_RISKGRADE)
+                # TMP_RETURN 데이터프레임 생성
+                terms = [
+                    ('1d', sFndDate, sFndDate),
+                    ('1m', (pd.to_datetime(sFndDate) - pd.DateOffset(months=1) + pd.DateOffset(days=1)).strftime('%Y%m%d'), sFndDate),
+                    ('3m', (pd.to_datetime(sFndDate) - pd.DateOffset(months=3) + pd.DateOffset(days=1)).strftime('%Y%m%d'), sFndDate),
+                    ('6m', (pd.to_datetime(sFndDate) - pd.DateOffset(months=6) + pd.DateOffset(days=1)).strftime('%Y%m%d'), sFndDate),
+                    ('1y', (pd.to_datetime(sFndDate) - pd.DateOffset(years=1) + pd.DateOffset(days=1)).strftime('%Y%m%d'), sFndDate),
+                    ('all', '20181203', sFndDate)
+                ]
+                valid_terms = [
+                    (term, start, end) 
+                    for term, start, end in terms 
+                    if pd.to_datetime(start, format='%Y%m%d', errors='coerce') >= pd.to_datetime('20181204', format='%Y%m%d') or term == 'all'
+                ]
+                term_df = pd.DataFrame(valid_terms, columns=['term', 'start_dt', 'end_dt'])
 
-            #     # TMP_RETURN 데이터프레임 생성 (추가 로직 작성 필요)
+                result_return_query = """
+                SELECT auth_id, port_cd, trddate, rtn_1d
+                FROM TBL_RESULT_RETURN
+                """
+                TBL_RESULT_RETURN = pd.read_sql(
+                    text(result_return_query), engine.connect()
+                )
+
+                all_returns = []
+
+                # term_df를 사용해 TBL_RESULT_RETURN을 필터링하고 term, start_dt, end_dt 추가
+                for _, term_row in term_df.iterrows():
+                    start_dt = term_row['start_dt']
+                    end_dt = term_row['end_dt']
+                    term = term_row['term']
+
+                    # 기간 조건에 맞는 데이터를 필터링
+                    filtered_return = TBL_RESULT_RETURN[
+                        (TBL_RESULT_RETURN['trddate'] >= start_dt) &
+                        (TBL_RESULT_RETURN['trddate'] <= end_dt)
+                    ].copy()
+                    filtered_return['term'] = term
+                    filtered_return['start_dt'] = start_dt
+                    filtered_return['end_dt'] = end_dt
+
+                    all_returns.append(filtered_return)
+
+                # S3: 모든 필터링된 데이터를 병합
+                S3 = pd.concat(all_returns, ignore_index=True)
+
+                # TMP_RISKGRADE와 S3를 LEFT OUTER JOIN
+                TMP_RETURN = pd.merge(
+                    TMP_RISKGRADE,  # S1
+                    S3,             # S3
+                    on=['auth_id', 'port_cd'],  # JOIN 조건
+                    how='left',      # LEFT OUTER JOIN
+                    suffixes=('', '_extra')
+                )
+
+                # 로그 수익률 계산
+                TMP_RETURN['log_rt'] = np.log(TMP_RETURN['rtn_1d'] + 1)
+
+                TMP_RETURN = TMP_RETURN[['auth_id', 'port_cd', 'risk_grade', 'prd_gb', 'term', 'start_dt', 'end_dt', 'trddate', 'rtn_1d', 'log_rt']]
+                
+                # TMP_PERFORMANCE 데이터프레임 생성
+                TMP_PERFORMANCE = (
+                    TMP_RETURN
+                    .groupby(['auth_id', 'term', 'risk_grade', 'prd_gb'], as_index=False)
+                    .agg(total_log_rt=('log_rt', 'sum'))
+                )
+                
+                # total_rt 계산: EXP(SUM(log_rt)) * 100 - 100
+                TMP_PERFORMANCE ['total_rt'] = (
+                    (np.exp(TMP_PERFORMANCE['total_log_rt']) * 100) - 100
+                ).round(2)
+                
+                TMP_PERFORMANCE =  TMP_PERFORMANCE[['auth_id', 'term', 'risk_grade', 'prd_gb', 'total_rt']]
+
+                # TMP_PERFORMANCE에서 term별 데이터 분리
+                tmp_1m = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == '1m'].copy()
+                tmp_3m = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == '3m'].copy()
+                tmp_6m = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == '6m'].copy()
+                tmp_1y = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == '1y'].copy()
+                tmp_all = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == 'all'].copy()
+                tmp_1d = TMP_PERFORMANCE[TMP_PERFORMANCE['term'] == '1d'].copy()
+
+                # LEFT JOIN 수행
+                merged = tmp_1d.merge(tmp_1m, on=['risk_grade', 'prd_gb'], suffixes=('', '_1m'), how='left')
+                merged = merged.merge(tmp_3m, on=['risk_grade', 'prd_gb'], suffixes=('', '_3m'), how='left')
+                merged = merged.merge(tmp_6m, on=['risk_grade', 'prd_gb'], suffixes=('', '_6m'), how='left')
+                merged = merged.merge(tmp_1y, on=['risk_grade', 'prd_gb'], suffixes=('', '_1y'), how='left')
+                merged = merged.merge(tmp_all, on=['risk_grade', 'prd_gb'], suffixes=('', '_all'), how='left')
+
+                # 열 계산
+                def map_expected_return(row):
+                    if row['risk_grade'] == '1':
+                        return '9.10' if row['prd_gb'] == 'f12' else '9.04'
+                    elif row['risk_grade'] == '2':
+                        return '12.40' if row['prd_gb'] == 'f12' else '12.53'
+                    elif row['risk_grade'] == '3':
+                        return '16.02' if row['prd_gb'] == 'f12' else '16.64'
+                    elif row['risk_grade'] == '4':
+                        return '19.14' if row['prd_gb'] == 'f12' else '19.80'
+                    elif row['risk_grade'] == '5':
+                        return '21.15' if row['prd_gb'] == 'f12' else '22.99'
+                    return ''
+
+                def map_volatility(row):
+                    if row['risk_grade'] == '1':
+                        return '3.20' if row['prd_gb'] == 'f12' else '3.10'
+                    elif row['risk_grade'] == '2':
+                        return '4.46' if row['prd_gb'] == 'f12' else '4.57'
+                    elif row['risk_grade'] == '3':
+                        return '6.68' if row['prd_gb'] == 'f12' else '6.87'
+                    elif row['risk_grade'] == '4':
+                        return '8.60' if row['prd_gb'] == 'f12' else '9.21'
+                    elif row['risk_grade'] == '5':
+                        return '10.90' if row['prd_gb'] == 'f12' else '11.51'
+                    return ''
+
+                merged['expected_return'] = merged.apply(map_expected_return, axis=1)
+                merged['volatility'] = merged.apply(map_volatility, axis=1)
+
+                # 데이터 정렬
+                merged = merged.sort_values(by=['prd_gb', 'risk_grade']).reset_index(drop=True)
+
+                # 데이터 정리 및 생성
+                merged['lst'] = (
+                    sFndDate + ';' +
+                    merged['risk_grade'] + ';' +
+                    merged['prd_gb'].map({'f12': '77', 'f11': '61'}) + ';' +
+                    merged['total_rt'].fillna('').astype(str) + ';' +
+                    merged['total_rt_3m'].fillna('').astype(str) + ';' +
+                    merged['total_rt_6m'].fillna('').astype(str) + ';' +
+                    merged['total_rt_1y'].fillna('').astype(str) + ';' +
+                    merged['total_rt_all'].fillna('').astype(str) + ';' +
+                    merged['expected_return'] + ';' +
+                    merged['volatility'] + ';' +
+                    merged['total_rt_1m'].fillna('').astype(str) + ';'
+                )
+
+                # idx 컬럼 생성 (정렬 이후)
+                merged['idx'] = merged.index + 1
+
+                # 필요한 열 추출
+                final_df = merged[['idx', 'lst']].copy()
+                final_df['indate'] = datetime.now().strftime('%Y%m%d%H%M%S')
+                final_df['send_filename'] = sSetFile
+                final_df = final_df[['indate', 'send_filename', 'idx', 'lst']]
+
+                # CSV 파일 저장
+                local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                final_df[['lst']].to_csv(local_file_path, index=False, header=False, encoding='utf-8')
+
+                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_df.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row['indate'],
+                            "send_filename": row['send_filename'],
+                            "idx": row['idx'],
+                            "lst": row['lst']
+                        }
+                    )
+                print("Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table.")
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
+
+        # SFTP 업로드
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
+        raise
 
     finally:
-        pass  # 필요 시 추가 로직 작성
-
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_mp_list(conn, target_date, sftp_client):

@@ -74,7 +74,7 @@ try:
     sftp.chdir("foss_data_test")
 
     ###################################### 사용자 입력 #########################################
-    target_date = "20241127"
+    target_date = "20241202"
     batch_spid = ""
     running_key = ""
     # process_type = "RECEIVE_UNIVERSE"
