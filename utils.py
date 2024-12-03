@@ -301,6 +301,13 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
     """
     Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
+    - Fetches the most recent business date (fund base date).
+    - Validates data consistency between TBL_RESULT_RETURN and TBL_RESULT_MPLIST.
+    - Calculates risk grades, return terms, and associated performance metrics.
+    - Generates a final CSV file containing the data.
+    - Inserts data into TBL_FOSS_BCPDATA table.
+    - Uploads the CSV file to the SFTP server.
+
     :param engine: SQLAlchemy engine
     :param target_date: Target date for processing
     :param sftp_client: SFTP client for file operations
@@ -313,9 +320,9 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
         # 파일 이름 설정
         sSetFile = f"mp_info.{target_date}"
 
-        # 최근 영업일 계산
         with engine.connect() as connection:
             with connection.begin():
+                # 최근 영업일 계산
                 query = """
                 SELECT TOP 1 trddate
                 FROM (
@@ -666,114 +673,146 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_list(conn, target_date, sftp_client):
+def process_mp_list(engine, target_date, sftp_client):
+    """
+    Processes the MP List data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
+    and uploads the file to the SFTP server.
+
+    - Fetches the MP List data from TBL_RESULT_MPLIST and TBL_FOSS_UNIVERSE.
+    - Generates a formatted list (`lst`) containing port_cd, product information, and weights.
+    - Inserts the processed data into the TBL_FOSS_BCPDATA table.
+    - Generates a CSV file for transmission.
+    - Uploads the CSV file to the SFTP server.
+
+    :param engine: SQLAlchemy engine instance used for database operations.
+    :param target_date: The target date for processing.
+    :param sftp_client: Configured SFTP client for file transmission.
+    """
     try:
-        cursor = conn.cursor()
-
-        # 기준 날짜 설정
-        if not target_date:
-            target_date = datetime.now().strftime("%Y%m%d")
-        print(f"Processing MP List for target date: {target_date}")
-
         sSetFile = f"mp_fnd_info.{target_date}"
-        local_file_path = f"{sSetFile}.csv"
-        sftp_target_path = f"/home/fossDev/robo_data/{sSetFile}"
 
-        # FTPResult 테이블 데이터 삽입
-        cursor.execute(
-            """
-        INSERT INTO #FTPResult (d_code, send_filename, rst)
-        VALUES ('BATCH_FOSS_05', ?, '.')
-        """,
-            sSetFile,
-        )
+        with engine.connect() as connection:
+            with connection.begin():
+                # MP List 데이터 조회
+                query = """
+                SELECT 
+                    S1.port_cd,
+                    S1.prd_gb,
+                    S1.prd_cd,
+                    S1.prd_weight,
+                    S2.fund_nm
+                FROM TBL_RESULT_MPLIST S1
+                LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
+                    ON S2.fund_cd = S1.prd_cd 
+                    AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
+                INNER JOIN (
+                    SELECT port_cd, MAX(rebal_date) AS rebal_date 
+                    FROM TBL_RESULT_MPLIST 
+                    WHERE auth_id = :auth_id AND rebal_date <= :target_date 
+                    GROUP BY port_cd
+                ) S3 
+                    ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
+                WHERE S1.auth_id = :auth_id
+                ORDER BY S1.port_cd ASC
+                """
 
-        # TBL_FOSS_BCPDATA 데이터 삽입
-        cursor.execute(
-            """
-        INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-        SELECT ?, ?, 
-                ROW_NUMBER() OVER (ORDER BY S1.port_cd ASC),
-                RIGHT(S1.port_cd, 1) + ';' + 
-                CASE S1.prd_gb
-                    WHEN 'f12' THEN '77'
-                    WHEN 'f11' THEN '61'
-                END + ';' + 
-                S1.prd_cd + ';' + 
-                CASE
-                    WHEN DATALENGTH(ISNULL(S2.fund_nm, '')) > 100 THEN LEFT(S2.fund_nm, 100)
-                    ELSE ISNULL(S2.fund_nm, '')
-                END + ';' + 
-                CAST(CAST(S1.prd_weight / 100 AS NUMERIC(4, 2)) AS VARCHAR(4)) + ';'
-        FROM TBL_RESULT_MPLIST S1
-        LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
-            ON S2.fund_cd = S1.prd_cd AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
-        INNER JOIN (
-            SELECT port_cd, MAX(rebal_date) AS rebal_date
-            FROM TBL_RESULT_MPLIST
-            WHERE auth_id = 'foss' AND rebal_date <= ?
-            GROUP BY port_cd
-        ) S3 
-            ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
-        WHERE S1.auth_id = 'foss'
-        ORDER BY S1.port_cd ASC
-        """,
-            (datetime.now().strftime("%Y%m%d%H%M%S"), sSetFile, target_date),
-        )
+                # 쿼리 실행 및 DataFrame 생성
+                raw_df = pd.read_sql(
+                    text(query),
+                    connection,
+                    params={"target_date": target_date, "auth_id": "foss"},
+                )
 
-        print("MP List data inserted into TBL_FOSS_BCPDATA successfully.")
+                # pandas에서 datalength 및 substring 처리
+                # fund_nm 길이 100 초과 시 자르기
+                raw_df["fund_nm"] = raw_df["fund_nm"].fillna("")
+                raw_df["fund_nm"] = raw_df["fund_nm"].apply(
+                    lambda x: x[:100] if len(x) > 100 else x
+                )
 
-        # BCP 데이터 조회 및 로컬 파일로 저장
-        cursor.execute(
-            """
-        SELECT lst 
-        FROM TBL_FOSS_BCPDATA
-        WHERE send_filename = ?
-        ORDER BY idx ASC
-        """,
-            sSetFile,
-        )
+                # RIGHT(S1.port_cd, 1)
+                raw_df["port_cd_last_char"] = raw_df["port_cd"].str[-1]
 
-        rows = cursor.fetchall()
-        if not rows:
-            print("No data found to save in the file.")
-            return
+                # prd_gb 매핑 (CASE WHEN 처리)
+                raw_df["prd_gb_mapped"] = raw_df["prd_gb"].map(
+                    {"f12": "77", "f11": "61"}
+                )
 
-        # 파일 생성
-        with open(local_file_path, "w", newline="", encoding="utf-8") as file:
-            for row in rows:
-                file.write(row[0] + "\n")  # 'lst' 컬럼 값만 저장
+                # lst 컬럼 생성
+                raw_df["lst"] = (
+                    raw_df["port_cd_last_char"]
+                    + ";"
+                    + raw_df["prd_gb_mapped"]
+                    + ";"
+                    + raw_df["prd_cd"]
+                    + ";"
+                    + raw_df["fund_nm"]
+                    + ";"
+                    + (raw_df["prd_weight"] / 100).round(2).astype(str)
+                    + ";"
+                )
 
-        print(f"Local file {local_file_path} generated successfully.")
+                # ROW_NUMBER (idx) 추가
+                raw_df["idx"] = raw_df.index + 1
+
+                # 필요한 컬럼만 선택
+                indate = datetime.now().strftime("%Y%m%d%H%M%S")
+                send_filename = sSetFile
+
+                final_df = raw_df[["idx", "lst"]].copy()
+                final_df["indate"] = indate
+                final_df["send_filename"] = send_filename
+
+                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
+
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
+                )
+                final_df = final_df.sort_values(by="idx").reset_index(drop=True)
+
+                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_df.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row["indate"],
+                            "send_filename": row["send_filename"],
+                            "idx": row["idx"],
+                            "lst": row["lst"],
+                        },
+                    )
+                print(
+                    "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
 
         # SFTP 업로드
-        print(f"Uploading file to SFTP path: {sftp_target_path}")
-        with sftp_client.open(sftp_target_path, "w") as sftp_file:
-            with open(local_file_path, "r", encoding="utf-8") as local_file:
-                sftp_file.write(local_file.read())
-        print(f"File {sSetFile} uploaded to SFTP successfully.")
-
-        # TBL_FOSS_BCPDATA 처리 상태 업데이트
-        cursor.execute(
-            """
-        UPDATE #FTPResult
-        SET rst = 'bcp create success'
-        WHERE send_filename = ?
-        """,
-            sSetFile,
-        )
-
-        conn.commit()
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred during process_mp_list: {e}")
-        conn.rollback()
+        print(f"An error occurred: {e}")
+        raise
 
     finally:
-        # 파일 삭제 확인
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-            print(f"Local file {local_file_path} deleted.")
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_rebalcus(
