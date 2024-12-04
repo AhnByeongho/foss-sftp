@@ -1071,98 +1071,105 @@ def process_rebalcus(
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_report(conn, target_date, sftp_client):
+def process_report(engine, target_date, sftp_client):
     try:
-        cursor = conn.cursor()
-
         # 파일 이름 설정
         sSetFile = f"report.{target_date}"
-        print(f"Processing report for target date: {target_date}, File: {sSetFile}")
 
-        # #FTPResult 테이블 데이터 삽입
-        cursor.execute(
-            """
-        INSERT INTO #FTPResult (d_code, send_filename, rst)
-        VALUES ('BATCH_FOSS_07', ?, '.')
-        """,
-            sSetFile,
-        )
+        with engine.connect() as connection:
+            with connection.begin():
+                # TBL_FOSS_REPORT에서 오늘 날짜와 동일한 trddate가 있는지 확인
+                check_query = text("""
+                    SELECT COUNT(trddate) 
+                    FROM TBL_FOSS_REPORT 
+                    WHERE trddate = :target_date
+                """)
+                result = connection.execute(
+                    check_query, {"target_date": target_date}
+                ).scalar()
 
-        # TBL_FOSS_REPORT 데이터 확인
-        cursor.execute("""
-        SELECT COUNT(trddate)
-        FROM TBL_FOSS_REPORT
-        WHERE trddate = CONVERT(CHAR(8), GETDATE(), 112)
-        """)
-        report_count = cursor.fetchone()[0]
+                if result >= 1:
+                    # trddate가 오늘 날짜인 데이터를 가져와서 TBL_FOSS_BCPDATA에 삽입
+                    select_query = text("""
+                        SELECT trddate, performance_t, performance_c
+                        FROM TBL_FOSS_REPORT
+                        WHERE trddate = (
+                            SELECT MAX(trddate) 
+                            FROM TBL_FOSS_REPORT 
+                            WHERE trddate <= :target_date
+                        )
+                    """)
+                    df = pd.read_sql(
+                        select_query, connection, params={"target_date": target_date}
+                    )
 
-        if report_count >= 1:
-            # TBL_FOSS_BCPDATA 데이터 삽입
-            cursor.execute(
-                """
-            INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-            SELECT ?, ?, 
-                    ROW_NUMBER() OVER (ORDER BY (SELECT 1)),
-                    trddate + ';' + 
-                    REPLACE(REPLACE(REPLACE(REPLACE(performance_t,'"','&quot;'), CHAR(13), '\n'), CHAR(10), ''), ';', '') + ';' + 
-                    REPLACE(REPLACE(REPLACE(REPLACE(performance_c,'"','&quot;'), CHAR(13), '\n'), CHAR(10), ''), ';', '') + ';'
-            FROM TBL_FOSS_REPORT
-            WHERE trddate = (
-                SELECT MAX(trddate)
-                FROM TBL_FOSS_REPORT
-                WHERE trddate <= CONVERT(VARCHAR(8), GETDATE(), 112)
-            )
-            """,
-                (datetime.now().strftime("%Y%m%d%H%M%S"), sSetFile),
-            )
-            print("Report data inserted into TBL_FOSS_BCPDATA successfully.")
+                    # 문자열 전처리: performance_t와 performance_c
+                    def clean_string(value):
+                        value = value.replace('"', "&quot;")  # "를 &quot;로 변경
+                        value = value.replace("\r", "\n")  # CHAR(13) -> \n
+                        value = value.replace("\n", "")  # CHAR(10)을 없애기
+                        value = value.replace(";", "")  # ;을 없애기
+                        return value
 
-        # BCP 데이터 조회 및 로컬 파일 저장
-        cursor.execute(
-            """
-        SELECT lst 
-        FROM TBL_FOSS_BCPDATA
-        WHERE send_filename = ?
-        ORDER BY idx
-        """,
-            sSetFile,
-        )
+                    # BCP 데이터 삽입 준비
+                    insert_data = []
+                    for idx, row in df.iterrows():
+                        performance_t = clean_string(row["performance_t"])
+                        performance_c = clean_string(row["performance_c"])
 
-        rows = cursor.fetchall()
-        local_file_path = f"{sSetFile}.csv"
-        with open(local_file_path, "w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            writer.writerow(["lst"])  # 헤더
-            writer.writerows(rows)
+                        lst = f"{row['trddate']};{performance_t};{performance_c};"
+                        insert_data.append(
+                            {
+                                "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+                                "send_filename": sSetFile,
+                                "idx": idx + 1,  # ROW_NUMBER() 대체
+                                "lst": lst,
+                            }
+                        )
+                    # insert_data를 DataFrame으로 변환
+                    insert_df = pd.DataFrame(insert_data)
 
-        print(f"Local file {local_file_path} generated successfully.")
+                    # TBL_FOSS_BCPDATA에 삽입
+                    insert_query = text("""
+                        INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                        VALUES (:indate, :send_filename, :idx, :lst)
+                    """)
+                    connection.execute(insert_query, insert_data)
+
+                    print(
+                        f"Report data for {target_date} has been processed and inserted."
+                    )
+
+                    # CSV 파일 저장
+                    local_file_path = (
+                        f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                    )
+                    insert_df[["lst"]].to_csv(
+                        local_file_path, index=False, header=False, encoding="utf-8"
+                    )
+
+                else:
+                    print(f"No report data found for {target_date}.")
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
 
         # SFTP 업로드
-        with sftp_client.open(f"/robo_data/{sSetFile}", "w") as sftp_file:
-            with open(local_file_path, "r", encoding="utf-8") as local_file:
-                sftp_file.write(local_file.read())
-        print(f"File {sSetFile} uploaded to SFTP successfully.")
-
-        # TBL_FOSS_BCPDATA 처리 상태 업데이트
-        cursor.execute(
-            """
-        UPDATE #FTPResult
-        SET rst = 'bcp create success'
-        WHERE send_filename = ?
-        """,
-            sSetFile,
-        )
-
-        conn.commit()
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred during process_report: {e}")
-        conn.rollback()
+        print(f"An error occurred: {e}")
+        raise
 
     finally:
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-            print(f"Local file {local_file_path} deleted.")
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_mp_info_eof(conn, target_date, sftp_client):
