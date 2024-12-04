@@ -1072,6 +1072,21 @@ def process_rebalcus(
 
 
 def process_report(engine, target_date, sftp_client):
+    """
+    Processes report data for the specified target date, generates a CSV file, 
+    inserts the data into the TBL_FOSS_BCPDATA table, and uploads the file to the SFTP server.
+
+    - Checks if there is any data in TBL_FOSS_REPORT for the target date.
+    - If data is available, it fetches the latest report data (up to the target date).
+    - Cleans the `performance_t` and `performance_c` fields by applying string replacements.
+    - Generates the `lst` field for each row and inserts the processed data into TBL_FOSS_BCPDATA.
+    - Creates a CSV file containing the `lst` data for transmission.
+    - Uploads the generated CSV file to the SFTP server.
+
+    :param engine: SQLAlchemy engine instance used for database operations.
+    :param target_date: The target date for processing the report data (format: YYYYMMDD).
+    :param sftp_client: Configured SFTP client for file transmission.
+    """
     try:
         # 파일 이름 설정
         sSetFile = f"report.{target_date}"
@@ -1172,70 +1187,47 @@ def process_report(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_info_eof(conn, target_date, sftp_client):
+def process_mp_info_eof(engine, target_date, sftp_client):
+    """
+    Generates an EOF (End of File) for mp_info and uploads it to the SFTP server.
+
+    - Creates an empty CSV file with the specified name.
+    - Uploads the file to the SFTP server.
+
+    :param engine: SQLAlchemy engine instance used for database operations.
+    :param target_date: The target date for the EOF file.
+    :param sftp_client: Configured SFTP client for file transmission.
+    """
     try:
-        cursor = conn.cursor()
-
-        # 기준 날짜 설정
-        if not target_date:
-            target_date = datetime.now().strftime("%Y%m%d")
-        print(f"Processing MP_INFO_EOF for target date: {target_date}")
-
         # 파일 이름 설정
         sSetFile = f"mp_info_eof.{target_date}"
+        local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
 
-        # #FTPResult 테이블에 데이터 삽입
-        cursor.execute(
-            """
-        INSERT INTO #FTPResult (d_code, send_filename, rst)
-        VALUES ('BATCH_FOSS_08', ?, '.')
-        """,
-            sSetFile,
-        )
 
-        # 빈 EOF 파일 생성
-        local_file_path = f"{sSetFile}.csv"
-        with open(local_file_path, "w", newline="", encoding="utf-8") as file:
-            # EOF 파일은 비어 있는 상태로 저장
-            file.write("")
-        print(f"Empty EOF file {local_file_path} generated successfully.")
+        # 빈 CSV 파일 생성
+        with open(local_file_path, "w", encoding="utf-8") as file:
+            file.write("")  # 빈 파일 생성
+
+        print(f"Empty EOF file created at: {local_file_path}")
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
 
         # SFTP 업로드
-        with sftp_client.open(f"/robo_data/{sSetFile}", "w") as sftp_file:
-            with open(local_file_path, "r", encoding="utf-8") as local_file:
-                sftp_file.write(local_file.read())
-        print(f"EOF file {sSetFile} uploaded to SFTP successfully.")
-
-        # 전송 상태 업데이트
-        cursor.execute(
-            """
-        UPDATE #FTPResult
-        SET rst = 'bcp create success'
-        WHERE send_filename = ?
-        """,
-            sSetFile,
-        )
-
-        conn.commit()
+        sftp_client.put(local_file_path, remote_path)
+        print(f"Empty EOF file successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred during process_mp_info_eof: {e}")
-        cursor.execute(
-            """
-        UPDATE #FTPResult
-        SET rst = 'bcp create failed'
-        WHERE send_filename = ?
-        """,
-            sSetFile,
-        )
-        conn.rollback()
+        print(f"An error occurred: {e}")
         raise
 
     finally:
-        # 생성된 로컬 파일 삭제
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-            print(f"Local EOF file {local_file_path} deleted.")
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 # def log_ftp_process(conn, batch_spid, running_key):
