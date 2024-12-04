@@ -816,7 +816,12 @@ def process_mp_list(engine, target_date, sftp_client):
 
 
 def process_rebalcus(
-    engine, target_date, sftp_client, manual_customer_ids=None, manual_rebal_yn=None, forced_rebal_dates=None
+    engine,
+    target_date,
+    sftp_client,
+    manual_customer_ids=None,
+    manual_rebal_yn=None,
+    forced_rebal_dates=None,
 ):
     """
     Processes the Rebalancing Customer data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
@@ -887,7 +892,7 @@ def process_rebalcus(
                     {"target_date": target_date, "i_opent_day": i_opent_day},
                 ).fetchone()
 
-                next_rebal_date_pension = result_pension[0] if result_pension else ''
+                next_rebal_date_pension = result_pension[0] if result_pension else ""
 
                 # 일반(f11) 다음 리밸런싱 날짜 계산
                 query_next_rebal_date_general = """
@@ -909,7 +914,7 @@ def process_rebalcus(
                     {"target_date": target_date, "i_opent_day": i_opent_day},
                 ).fetchone()
 
-                next_rebal_date_general = result_general[0] if result_general else ''
+                next_rebal_date_general = result_general[0] if result_general else ""
 
                 # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
                 current_date = datetime.now().strftime("%Y%m%d")
@@ -968,12 +973,16 @@ def process_rebalcus(
                 )
 
                 # 데이터 결합 (UNION ALL)
-                final_rebalcus_data = pd.concat([pension_data, general_data], ignore_index=True)
+                final_rebalcus_data = pd.concat(
+                    [pension_data, general_data], ignore_index=True
+                )
 
                 # ROW_NUMBER() 기능 재현
-                final_rebalcus_data['idx'] = range(1, len(final_rebalcus_data) + 1)
+                final_rebalcus_data["idx"] = range(1, len(final_rebalcus_data) + 1)
 
-                final_rebalcus_data = final_rebalcus_data.sort_values(by="idx").reset_index(drop=True)
+                final_rebalcus_data = final_rebalcus_data.sort_values(
+                    by="idx"
+                ).reset_index(drop=True)
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
                 # 데이터 삽입
@@ -1000,14 +1009,18 @@ def process_rebalcus(
                     # 수동 리밸런싱 신호 전송 작업 수행
                     for customer_id in manual_customer_ids:
                         # 업데이트할 lst 값 생성
-                        updated_lst_value = f"{customer_id};{manual_rebal_yn};{target_date};"
-                        
+                        updated_lst_value = (
+                            f"{customer_id};{manual_rebal_yn};{target_date};"
+                        )
+
                         # 데이터프레임 내 업데이트
                         final_rebalcus_data.loc[
-                            final_rebalcus_data["lst"].str.startswith(f"{customer_id};"),
+                            final_rebalcus_data["lst"].str.startswith(
+                                f"{customer_id};"
+                            ),
                             "lst",
                         ] = updated_lst_value
-                        
+
                         # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
                         update_query = """
                         UPDATE TBL_FOSS_BCPDATA
@@ -1025,7 +1038,9 @@ def process_rebalcus(
                                 "customer_id_prefix": f"{customer_id}%;",
                             },
                         )
-                    print(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
+                    print(
+                        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
+                    )
 
                 # CSV 파일 저장
                 local_file_path = (
