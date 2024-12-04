@@ -1084,7 +1084,9 @@ def process_report(engine, target_date, sftp_client):
                     FROM TBL_FOSS_REPORT 
                     WHERE trddate = :target_date
                 """)
-                result = connection.execute(check_query, {'target_date': target_date}).scalar()
+                result = connection.execute(
+                    check_query, {"target_date": target_date}
+                ).scalar()
 
                 if result >= 1:
                     # trddate가 오늘 날짜인 데이터를 가져와서 TBL_FOSS_BCPDATA에 삽입
@@ -1097,29 +1099,33 @@ def process_report(engine, target_date, sftp_client):
                             WHERE trddate <= :target_date
                         )
                     """)
-                    df = pd.read_sql(select_query, connection, params={'target_date': target_date})
+                    df = pd.read_sql(
+                        select_query, connection, params={"target_date": target_date}
+                    )
 
                     # 문자열 전처리: performance_t와 performance_c
                     def clean_string(value):
-                        value = value.replace('"', '&quot;')  # "를 &quot;로 변경
+                        value = value.replace('"', "&quot;")  # "를 &quot;로 변경
                         value = value.replace("\r", "\n")  # CHAR(13) -> \n
-                        value = value.replace("\n", '')  # CHAR(10)을 없애기
-                        value = value.replace(";", '')  # ;을 없애기
+                        value = value.replace("\n", "")  # CHAR(10)을 없애기
+                        value = value.replace(";", "")  # ;을 없애기
                         return value
 
                     # BCP 데이터 삽입 준비
                     insert_data = []
                     for idx, row in df.iterrows():
-                        performance_t = clean_string(row['performance_t'])
-                        performance_c = clean_string(row['performance_c'])
+                        performance_t = clean_string(row["performance_t"])
+                        performance_c = clean_string(row["performance_c"])
 
                         lst = f"{row['trddate']};{performance_t};{performance_c};"
-                        insert_data.append({
-                            'indate': datetime.now().strftime("%Y%m%d%H%M%S"),
-                            'send_filename': sSetFile,
-                            'idx': idx + 1,  # ROW_NUMBER() 대체
-                            'lst': lst
-                        })
+                        insert_data.append(
+                            {
+                                "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+                                "send_filename": sSetFile,
+                                "idx": idx + 1,  # ROW_NUMBER() 대체
+                                "lst": lst,
+                            }
+                        )
                     # insert_data를 DataFrame으로 변환
                     insert_df = pd.DataFrame(insert_data)
 
@@ -1129,9 +1135,11 @@ def process_report(engine, target_date, sftp_client):
                         VALUES (:indate, :send_filename, :idx, :lst)
                     """)
                     connection.execute(insert_query, insert_data)
-                    
-                    print(f"Report data for {target_date} has been processed and inserted.")
-                    
+
+                    print(
+                        f"Report data for {target_date} has been processed and inserted."
+                    )
+
                     # CSV 파일 저장
                     local_file_path = (
                         f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
@@ -1142,7 +1150,7 @@ def process_report(engine, target_date, sftp_client):
 
                 else:
                     print(f"No report data found for {target_date}.")
-        
+
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
         local_path = local_file_path  # 로컬에서 저장한 파일 경로
