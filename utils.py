@@ -1073,7 +1073,7 @@ def process_rebalcus(
 
 def process_report(engine, target_date, sftp_client):
     """
-    Processes report data for the specified target date, generates a CSV file, 
+    Processes report data for the specified target date, generates a CSV file,
     inserts the data into the TBL_FOSS_BCPDATA table, and uploads the file to the SFTP server.
 
     - Checks if there is any data in TBL_FOSS_REPORT for the target date.
@@ -1202,7 +1202,6 @@ def process_mp_info_eof(engine, target_date, sftp_client):
         # 파일 이름 설정
         sSetFile = f"mp_info_eof.{target_date}"
         local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-
 
         # 빈 CSV 파일 생성
         with open(local_file_path, "w", encoding="utf-8") as file:
