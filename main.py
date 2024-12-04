@@ -81,8 +81,8 @@ try:
     # process_type = "RECEIVE_ACCOUNT"
     # process_type = "RECEIVE_CUSTMERFND"
     # process_type = "SEND_MPRATE"
-    process_type = "SEND_MPLIST"
-    # process_type = "SEND_REBALCUS"
+    # process_type = "SEND_MPLIST"
+    process_type = "SEND_REBALCUS"
     # process_type = "SEND_REPORT"
     # process_type = "SEND_MP_INFO_EOF"
     ##########################################################################################
@@ -143,10 +143,14 @@ try:
             # 리밸런싱 송신 처리
             process_rebalcus(engine, target_date, sftp)
 
-            # 수동 리밸런싱
-            # manual_customer_ids = "20478,8611,9105"
+            # 강제 리밸런싱일자 설정
+            # forced_rebal_dates = ["20231201", "20241201"]
+            # process_rebalcus(engine, target_date, sftp, forced_rebal_dates=forced_rebal_dates)
+
+            # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
+            # manual_customer_ids = ["10083", "10096", "10113"]
             # manual_rebal_yn = "Y"
-            # process_rebalcus(engine, target_date, sftp, manual_customer_ids, manual_rebal_yn)
+            # process_rebalcus(engine, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
 
         # ------------------------------ 리포트 송신 처리 ------------------------------- #
         elif process_type == "SEND_REPORT":

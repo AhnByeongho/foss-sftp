@@ -624,14 +624,6 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                 final_df["send_filename"] = sSetFile
                 final_df = final_df[["indate", "send_filename", "idx", "lst"]]
 
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
-
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
                 # 데이터 삽입
                 insert_query = """
@@ -650,6 +642,14 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                     )
                 print(
                     "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
+
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
                 )
 
         # SFTP 경로 및 파일 설정
@@ -689,6 +689,7 @@ def process_mp_list(engine, target_date, sftp_client):
     :param sftp_client: Configured SFTP client for file transmission.
     """
     try:
+        # 파일 이름 설정
         sSetFile = f"mp_fnd_info.{target_date}"
 
         with engine.connect() as connection:
@@ -762,16 +763,7 @@ def process_mp_list(engine, target_date, sftp_client):
                 final_df = raw_df[["idx", "lst"]].copy()
                 final_df["indate"] = indate
                 final_df["send_filename"] = send_filename
-
                 final_df = final_df[["indate", "send_filename", "idx", "lst"]]
-
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
                 final_df = final_df.sort_values(by="idx").reset_index(drop=True)
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
@@ -792,6 +784,14 @@ def process_mp_list(engine, target_date, sftp_client):
                     )
                 print(
                     "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
+
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
                 )
 
         # SFTP 경로 및 파일 설정
@@ -816,168 +816,259 @@ def process_mp_list(engine, target_date, sftp_client):
 
 
 def process_rebalcus(
-    conn, target_date, sftp_client, manual_customer_ids=None, manual_rebal_yn=None
+    engine,
+    target_date,
+    sftp_client,
+    manual_customer_ids=None,
+    manual_rebal_yn=None,
+    forced_rebal_dates=None,
 ):
+    """
+    Processes the Rebalancing Customer data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
+    and uploads the file to the SFTP server.
+
+    - Determines if the current date is a rebalancing date for pension and general investment products.
+    - Calculates the next rebalancing date for both pension and general investment products.
+    - Fetches customer rebalancing data from TBL_FOSS_CUSTOMERACCOUNT based on the calculated dates.
+    - Inserts the processed data into the TBL_FOSS_BCPDATA table.
+    - Handles manual rebalancing signals if specific customer IDs are provided.
+    - Generates a CSV file for transmission.
+    - Uploads the CSV file to the SFTP server.
+
+    :param engine: SQLAlchemy engine instance used for database operations.
+    :param target_date: The target date for processing.
+    :param sftp_client: Configured SFTP client for file transmission.
+    :param manual_customer_ids: (Optional) List of customer IDs for manual rebalancing.
+    :param manual_rebal_yn: (Optional) Manual rebalancing signal ('Y' or 'N') for specified customers.
+    """
     try:
-        cursor = conn.cursor()
-
-        # 기준 날짜 설정
-        if not target_date:
-            target_date = datetime.now().strftime("%Y%m%d")
-        print(f"Processing Rebalancing Data for target date: {target_date}")
-
         # 파일 이름 설정
         sSetFile = f"ap_reval_yn.{target_date}"
-        sInDate = datetime.now().strftime("%Y%m%d%H%M%S")
 
-        # 리밸런싱 여부 확인
-        cursor.execute(
-            """
-        SELECT CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END 
-        FROM TBL_RESULT_MPLIST
-        WHERE auth_id = 'foss' AND rebal_date = ? AND prd_gb = 'f12'
-        """,
-            target_date,
-        )
-        sRebalDayYN = cursor.fetchone()[0]
+        with engine.connect() as connection:
+            with connection.begin():
+                # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
+                rebal_day_query = """
+                SELECT 
+                    CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END AS rebal_day_yn
+                FROM TBL_RESULT_MPLIST 
+                WHERE auth_id = :auth_id 
+                    AND rebal_date = :target_date 
+                    AND prd_gb = :prd_gb
+                """
+                # 연금(f12) 리밸런싱 여부
+                result_f12 = connection.execute(
+                    text(rebal_day_query),
+                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f12"},
+                ).scalar()
+                sRebalDayYN = result_f12
 
-        cursor.execute(
-            """
-        SELECT CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END 
-        FROM TBL_RESULT_MPLIST
-        WHERE auth_id = 'foss' AND rebal_date = ? AND prd_gb = 'f11'
-        """,
-            target_date,
-        )
-        sRebalDayYN2 = cursor.fetchone()[0]
+                # 일반(f11) 리밸런싱 여부
+                result_f11 = connection.execute(
+                    text(rebal_day_query),
+                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f11"},
+                ).scalar()
+                sRebalDayYN2 = result_f11
 
-        # 다음 리밸런싱 날짜 계산
-        iOpentDay = 3
-        cursor.execute(
-            """
-        SELECT MIN(trddate)
-        FROM (
-            SELECT trddate, 
-                    ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-            FROM TBL_HOLIDAY
-            WHERE LEFT(trddate, 6) >= LEFT(?, 6)
-                AND holiday_yn = 'N'
-                AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-        ) AS S1
-        WHERE trddate >= ? AND MonthCnt = ?
-        """,
-            (target_date, target_date, iOpentDay),
-        )
-        sNRebalDate = cursor.fetchone()[0]
+                i_opent_day = 3  # 영업일
 
-        cursor.execute(
-            """
-        SELECT MIN(trddate)
-        FROM (
-            SELECT trddate, 
-                    ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-            FROM TBL_HOLIDAY
-            WHERE LEFT(trddate, 6) >= LEFT(?, 6)
-                AND holiday_yn = 'N'
-                AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-        ) AS S1
-        WHERE trddate >= ? AND MonthCnt = ?
-        """,
-            (target_date, target_date, iOpentDay),
-        )
-        sNRebalDate2 = cursor.fetchone()[0]
+                # 연금(f12) 다음 리밸런싱 날짜 계산
+                query_next_rebal_date_pension = """
+                    SELECT MIN(trddate) AS next_rebal_date
+                    FROM (
+                        SELECT 
+                            trddate,
+                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
+                        FROM TBL_HOLIDAY
+                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
+                            AND holiday_yn = 'N'
+                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
+                    ) S1
+                    WHERE S1.trddate >= :target_date
+                        AND S1.MonthCnt = :i_opent_day
+                """
+                result_pension = connection.execute(
+                    text(query_next_rebal_date_pension),
+                    {"target_date": target_date, "i_opent_day": i_opent_day},
+                ).fetchone()
 
-        # 리밸런싱 데이터 생성
-        cursor.execute(
-            """
-        SELECT customer_id, 
-                customer_id + ';' + 
-                CASE WHEN ? = 'N' THEN 'N'
-                    ELSE CASE WHEN ? = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y' ELSE 'N' END
-                END + ';' + ? + ';' AS lst
-        FROM TBL_FOSS_CUSTOMERACCOUNT
-        WHERE trddate = ? AND investgb = '77'
-        UNION ALL
-        SELECT customer_id, 
-                customer_id + ';' + 
-                CASE WHEN ? = 'N' THEN 'N'
-                    ELSE CASE WHEN ? = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y' ELSE 'N' END
-                END + ';' + ? + ';' AS lst
-        FROM TBL_FOSS_CUSTOMERACCOUNT
-        WHERE trddate = ? AND investgb = '61'
-        """,
-            (
-                sRebalDayYN,
-                sRebalDayYN,
-                sNRebalDate,
-                target_date,
-                sRebalDayYN2,
-                sRebalDayYN2,
-                sNRebalDate2,
-                target_date,
-            ),
-        )
-        rows = cursor.fetchall()
+                next_rebal_date_pension = result_pension[0] if result_pension else ""
 
-        # ROW_NUMBER()와 동일한 방식으로 idx 생성
-        processed_rows = []
-        for idx, (customer_id, lst) in enumerate(rows, start=1):
-            processed_rows.append((sInDate, sSetFile, idx, lst))
+                # 일반(f11) 다음 리밸런싱 날짜 계산
+                query_next_rebal_date_general = """
+                    SELECT MIN(trddate) AS next_rebal_date
+                    FROM (
+                        SELECT 
+                            trddate,
+                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
+                        FROM TBL_HOLIDAY
+                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
+                            AND holiday_yn = 'N'
+                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
+                    ) S1
+                    WHERE S1.trddate >= :target_date
+                        AND S1.MonthCnt = :i_opent_day
+                """
+                result_general = connection.execute(
+                    text(query_next_rebal_date_general),
+                    {"target_date": target_date, "i_opent_day": i_opent_day},
+                ).fetchone()
 
-        # 중복 데이터 확인 및 삽입
-        insert_query = """
-        INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-        VALUES (?, ?, ?, ?)
-        """
-        for row in processed_rows:
-            try:
-                cursor.execute(insert_query, row)
-            except Exception as e:
-                print(f"Duplicate entry skipped: {row} | Error: {e}")
-                continue
+                next_rebal_date_general = result_general[0] if result_general else ""
 
-        # 수동 리밸런싱 처리
-        if manual_customer_ids and manual_rebal_yn:
-            customer_ids = manual_customer_ids.split(",")
-            print(
-                f"Manual rebalancing for customers: {customer_ids} with rebal_yn: {manual_rebal_yn}"
-            )
-            for customer_id in customer_ids:
-                cursor.execute(
-                    """
-                UPDATE TBL_FOSS_BCPDATA 
-                SET lst = LEFT(lst, CHARINDEX(';', lst) - 1) + ';' + ? + ';' + ?
-                WHERE send_filename = ? 
-                    AND indate = ? 
-                    AND LEFT(lst, CHARINDEX(';', lst) - 1) = ?
-                """,
-                    (manual_rebal_yn, target_date, sSetFile, sInDate, customer_id),
+                # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
+                current_date = datetime.now().strftime("%Y%m%d")
+                if forced_rebal_dates is not None:
+                    if current_date in forced_rebal_dates:
+                        sRebalDayYN = "Y"
+                        sRebalDayYN2 = "Y"
+
+                # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
+                query_rebalcus = """
+                    SELECT 
+                        :indate AS indate,
+                        :send_filename AS send_filename,
+                        ROW_NUMBER() OVER (ORDER BY customer_id ASC) AS idx,
+                        customer_id + ';' + 
+                        CASE 
+                            WHEN :rebal_day_yn = 'N' THEN 'N'
+                            ELSE 
+                                CASE 
+                                    WHEN :rebal_day_yn = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y'
+                                    ELSE 'N'
+                                END
+                        END + ';' + 
+                        :next_rebal_date + ';' AS lst
+                    FROM TBL_FOSS_CUSTOMERACCOUNT
+                    WHERE trddate = :target_date
+                        AND investgb = :investgb
+                """
+
+                # 연금(f12) 데이터 조회
+                pension_data = pd.read_sql(
+                    text(query_rebalcus),
+                    connection,
+                    params={
+                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+                        "send_filename": sSetFile,
+                        "rebal_day_yn": sRebalDayYN,
+                        "next_rebal_date": next_rebal_date_pension,
+                        "target_date": target_date,
+                        "investgb": "77",
+                    },
                 )
 
-        # CSV 파일 저장
-        local_file_path = f"{sSetFile}.csv"
-        with open(local_file_path, "w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            writer.writerows([(row[3],) for row in processed_rows])  # lst 컬럼만 추출
+                # 일반(f11) 데이터 조회
+                general_data = pd.read_sql(
+                    text(query_rebalcus),
+                    connection,
+                    params={
+                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+                        "send_filename": sSetFile,
+                        "rebal_day_yn": sRebalDayYN2,
+                        "next_rebal_date": next_rebal_date_general,
+                        "target_date": target_date,
+                        "investgb": "61",
+                    },
+                )
 
-        print(f"Data saved locally to {local_file_path} for verification.")
+                # 데이터 결합 (UNION ALL)
+                final_rebalcus_data = pd.concat(
+                    [pension_data, general_data], ignore_index=True
+                )
+
+                # ROW_NUMBER() 기능 재현
+                final_rebalcus_data["idx"] = range(1, len(final_rebalcus_data) + 1)
+
+                final_rebalcus_data = final_rebalcus_data.sort_values(
+                    by="idx"
+                ).reset_index(drop=True)
+
+                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_rebalcus_data.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row["indate"],
+                            "send_filename": row["send_filename"],
+                            "idx": row["idx"],
+                            "lst": row["lst"],
+                        },
+                    )
+                print(
+                    "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
+
+                # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
+                if manual_customer_ids is not None and manual_rebal_yn is not None:
+                    # 수동 리밸런싱 신호 전송 작업 수행
+                    for customer_id in manual_customer_ids:
+                        # 업데이트할 lst 값 생성
+                        updated_lst_value = (
+                            f"{customer_id};{manual_rebal_yn};{target_date};"
+                        )
+
+                        # 데이터프레임 내 업데이트
+                        final_rebalcus_data.loc[
+                            final_rebalcus_data["lst"].str.startswith(
+                                f"{customer_id};"
+                            ),
+                            "lst",
+                        ] = updated_lst_value
+
+                        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
+                        update_query = """
+                        UPDATE TBL_FOSS_BCPDATA
+                        SET lst = :updated_lst
+                        WHERE send_filename = :send_filename
+                            AND indate = :indate
+                            AND lst LIKE :customer_id_prefix
+                        """
+                        connection.execute(
+                            text(update_query),
+                            {
+                                "updated_lst": updated_lst_value,
+                                "send_filename": sSetFile,
+                                "indate": final_rebalcus_data["indate"].iloc[0],
+                                "customer_id_prefix": f"{customer_id}%;",
+                            },
+                        )
+                    print(
+                        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
+                    )
+
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_rebalcus_data[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
+                )
+
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
 
         # SFTP 업로드
-        with sftp_client.open(f"/robo_data/{sSetFile}", "w") as sftp_file:
-            with open(local_file_path, "r", encoding="utf-8") as local_file:
-                sftp_file.write(local_file.read())
-        print(f"File {sSetFile} uploaded successfully.")
-
-        conn.commit()
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred during process_rebalcus: {e}")
-        conn.rollback()
+        print(f"An error occurred: {e}")
+        raise
 
     finally:
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-            print(f"Local file {local_file_path} deleted.")
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_report(conn, target_date, sftp_client):
