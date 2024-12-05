@@ -1,6 +1,6 @@
 import paramiko
 
-from utils import (
+from utils_old import (
     get_sqlalchemy_connection,
     # log_batch_record,
     delete_old_bcp_data,
@@ -80,11 +80,11 @@ try:
     # process_type = "RECEIVE_UNIVERSE"
     # process_type = "RECEIVE_ACCOUNT"
     # process_type = "RECEIVE_CUSTMERFND"
-    process_type = "SEND_MPRATE"
+    # process_type = "SEND_MPRATE"
     # process_type = "SEND_MPLIST"
     # process_type = "SEND_REBALCUS"
     # process_type = "SEND_REPORT"
-    # process_type = "SEND_MP_INFO_EOF"
+    process_type = "SEND_MP_INFO_EOF"
     ##########################################################################################
 
     # # ------------------------ 배치 시작 로그 기록 -------------------------- #
