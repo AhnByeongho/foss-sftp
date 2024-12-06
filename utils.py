@@ -18,53 +18,6 @@ def get_sqlalchemy_connection(db_config):
     return create_engine(connection_url)
 
 
-# def log_batch_record(connection, log_type, batch_spid, running_key, return_result=None, return_msg=None):
-#     """
-#     Logs batch process start ('S') or end ('E') in the database, mimicking SP_BATCH_LOG_RECORD.
-
-#     :param connection: Database connection object
-#     :param log_type: 'S' for start, 'E' for end
-#     :param batch_spid: Batch process ID (integer)
-#     :param running_key: Unique running key (string)
-#     :param return_result: Result of the batch process ('success' or 'fail'), optional
-#     :param return_msg: Additional message describing the result, optional
-#     """
-#     try:
-#         if not batch_spid or not running_key.strip():
-#             # Skip logging if batch_spid or running_key is invalid
-#             return
-
-#         cursor = connection.cursor()
-
-#         if log_type == 'S':
-#             # Insert start log
-#             query = """
-#                 INSERT INTO TBL_BATCH_PROCESSING_LOG (batchspid, runningkey, starttime)
-#                 VALUES (?, ?, GETDATE())
-#             """
-#             cursor.execute(query, batch_spid, running_key)
-#         elif log_type == 'E':
-#             # Update end log
-#             query = """
-#                 UPDATE TBL_BATCH_PROCESSING_LOG
-#                 SET endtime = GETDATE(),
-#                     returnresult = ?,
-#                     returnmsg = ?
-#                 WHERE batchspid = ?
-#                     AND runningkey = ?
-#             """
-#             cursor.execute(query, return_result, return_msg, batch_spid, running_key)
-#         else:
-#             raise ValueError("Invalid log_type. Use 'S' for start or 'E' for end.")
-
-#         connection.commit()
-#         print(f"Batch log recorded successfully for log_type={log_type}, batch_spid={batch_spid}, running_key={running_key}.")
-#     except Exception as e:
-#         print(f"An error occurred while logging batch record: {e}")
-#         connection.rollback()
-#         raise
-
-
 def delete_old_bcp_data(engine):
     """
     Deletes data older than 1 month from the TBL_FOSS_BCPDATA table.
@@ -1227,45 +1180,3 @@ def process_mp_info_eof(engine, target_date, sftp_client):
                 os.remove(local_file_path)
         except Exception as e:
             print(f"Error occurred while deleting the temporary CSV file: {e}")
-
-
-# def log_ftp_process(conn, batch_spid, running_key):
-#     try:
-#         cursor = conn.cursor()
-
-#         # FTPResult 테이블 데이터가 있는지 확인
-#         cursor.execute("SELECT COUNT(*) FROM #FTPResult")
-#         ftp_result_count = cursor.fetchone()[0]
-
-#         if ftp_result_count > 0:
-#             # 현재 시각을 VARCHAR 형식으로 변환
-#             dt_now = datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]
-
-#             # TBL_EVENT_LOG에 데이터 삽입
-#             cursor.execute("""
-#             INSERT INTO TBL_EVENT_LOG (eventdate, eventtype, call_pgm_name, message, result)
-#             SELECT
-#                 ?, -- eventdate
-#                 d_code,
-#                 'Python: log_ftp_process',
-#                 CONCAT(rst, '      ', send_filename),
-#                 CASE WHEN CHARINDEX('success', rst) = 0 THEN 'false' ELSE 'true' END
-#             FROM #FTPResult
-#             """, dt_now)
-#             print("FTP processing results logged into TBL_EVENT_LOG successfully.")
-
-#         # 배치 로그 성공 처리
-#         cursor.execute("""
-#         EXEC SP_BATCH_LOG_RECORD 'E', ?, ?, '', 'success', '데이터 처리 성공'
-#         """, (batch_spid, running_key))
-#         conn.commit()
-
-#     except Exception as e:
-#         print("LOG SAVE Error:", e)
-#         conn.rollback()
-
-#         # 배치 로그 실패 처리
-#         cursor.execute("""
-#         EXEC SP_BATCH_LOG_RECORD 'E', ?, ?, '', 'fail', 'LOG SAVE Error'
-#         """, (batch_spid, running_key))
-#         conn.commit()

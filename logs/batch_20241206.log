@@ -1,0 +1,110 @@
+[2024-12-06 17:15:00] Starting process_type: RECEIVE_UNIVERSE
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(fnd_list) inserted successfully with duplicates removed.
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:08] Completed process_type: RECEIVE_UNIVERSE
+
+[2024-12-06 17:15:08] Starting process_type: RECEIVE_ACCOUNT
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(ap_acc_info) inserted successfully with duplicates removed.
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:13] Completed process_type: RECEIVE_ACCOUNT
+
+[2024-12-06 17:15:13] Starting process_type: RECEIVE_CUSTMERFND
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(ap_fnd_info) inserted successfully with duplicates removed.
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:33] Completed process_type: RECEIVE_CUSTMERFND
+
+[2024-12-06 17:15:33] Starting process_type: SEND_MPRATE
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table.
+File successfully uploaded to SFTP server: ../robo_data/mp_info.20241206
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:38] Completed process_type: SEND_MPRATE
+
+[2024-12-06 17:15:38] Starting process_type: SEND_MPLIST
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table.
+File successfully uploaded to SFTP server: ../robo_data/mp_fnd_info.20241206
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:44] Completed process_type: SEND_MPLIST
+
+[2024-12-06 17:15:44] Starting process_type: SEND_REBALCUS
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table.
+File successfully uploaded to SFTP server: ../robo_data/ap_reval_yn.20241206
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:48] Completed process_type: SEND_REBALCUS
+
+[2024-12-06 17:15:48] Starting process_type: SEND_REPORT
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Report data for 20241206 has been processed and inserted.
+File successfully uploaded to SFTP server: ../robo_data/report.20241206
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:51] Completed process_type: SEND_REPORT
+
+[2024-12-06 17:15:51] Starting process_type: SEND_MP_INFO_EOF
+-------------------------
+Connected to SFTP server
+-------------------------
+
+Old BCP data older than 1 month deleted successfully.
+Empty EOF file created at: /Users/mac/Downloads/mp_info_eof.20241206.csv
+Empty EOF file successfully uploaded to SFTP server: ../robo_data/mp_info_eof.20241206
+
+-------------------------
+    Connection closed    
+-------------------------
+[2024-12-06 17:15:54] Completed process_type: SEND_MP_INFO_EOF
+
+[2024-12-06 17:15:54] All processes completed successfully.
