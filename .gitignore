@@ -1,1 +1,5 @@
+# Python virtual environments
+env
+
+# Python bytecode
 __pycache__
