@@ -15,15 +15,19 @@ from utils import (
 )
 
 # sftp 연결 정보
-sftp_host = "106.10.52.176"
-sftp_port = 2020
-sftp_user = "fossDev"
-sftp_pass = "qBi-nav-dev_2)0$"
+fossDev_sftp_config = {
+    "host": "106.10.52.176",
+    "port": 2020,
+    "user": "fossDev",
+    "password": "qBi-nav-dev_2)0$"
+}
 
-# sftp_host = "106.10.52.176"
-# sftp_port = 2020
-# sftp_user = "foss"
-# sftp_pass = "qBi-nav_2)0$"
+foss_sftp_config = {
+    "host": "106.10.52.176",
+    "port": 2020,
+    "user": "foss",
+    "password": "qBi-nav_2)0$"
+}
 
 
 # MSSQL 연결 정보
@@ -56,6 +60,19 @@ db_config = {
 # }
 
 
+# TODO: 운영에 batch 돌릴 때는 수정해야함
+def get_sftp_connection(process_type):
+    if process_type in ["RECEIVE_UNIVERSE", "RECEIVE_ACCOUNT", "RECEIVE_CUSTMERFND"]:
+        config = foss_sftp_config
+    else:
+        config = fossDev_sftp_config
+
+    transport = paramiko.Transport((config["host"], config["port"]))
+    transport.connect(username=config["user"], password=config["password"])
+    sftp = paramiko.SFTPClient.from_transport(transport)
+    return sftp, transport
+
+
 def main():
     parser = argparse.ArgumentParser(description="Batch Process Script")
     parser.add_argument(
@@ -71,14 +88,13 @@ def main():
 
     try:
         # SFTP 연결
-        transport = paramiko.Transport((sftp_host, sftp_port))
-        transport.connect(username=sftp_user, password=sftp_pass)
-        sftp = paramiko.SFTPClient.from_transport(transport)
+        sftp, transport = get_sftp_connection(process_type)
+
         # MSSQL 연결
         engine = get_sqlalchemy_connection(db_config)
 
         # foss_data directory 접근
-        sftp.chdir("foss_data_test")
+        sftp.chdir("foss_data")
 
         # TODO: batch_spid, running_key
         try:
