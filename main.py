@@ -80,8 +80,8 @@ try:
     # process_type = "RECEIVE_CUSTMERFND"
     # process_type = "SEND_MPRATE"
     # process_type = "SEND_MPLIST"
-    process_type = "SEND_REBALCUS"
-    # process_type = "SEND_REPORT"
+    # process_type = "SEND_REBALCUS"
+    process_type = "SEND_REPORT"
     # process_type = "SEND_MP_INFO_EOF"
     ##########################################################################################
 
@@ -154,7 +154,7 @@ try:
 
         # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
         elif process_type == "SEND_MP_INFO_EOF":
-            process_mp_info_eof(engine, target_date, sftp)
+            process_mp_info_eof(target_date, sftp)
 
         # 잘못된 process_type이 입력되었을 경우
         else:

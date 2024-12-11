@@ -637,7 +637,7 @@ def process_report(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_info_eof(engine, target_date, sftp_client):
+def process_mp_info_eof(target_date, sftp_client):
     """
     Generates an EOF (End of File) for mp_info and uploads it to the SFTP server.
 
