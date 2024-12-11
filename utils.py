@@ -315,7 +315,7 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                     return  # 프로세스 중단
 
                 # TMP_PERFORMANCE 데이터프레임 생성
-                TMP_PERFORMANCE = get_tmp_performance(engine, "foss", sFndDate)
+                TMP_PERFORMANCE = get_tmp_performance(connection, "foss", sFndDate)
 
                 terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
                 merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
@@ -384,93 +384,16 @@ def process_mp_list(engine, target_date, sftp_client):
         with engine.connect() as connection:
             with connection.begin():
                 # MP List 데이터 조회
-                query = """
-                SELECT 
-                    S1.port_cd,
-                    S1.prd_gb,
-                    S1.prd_cd,
-                    S1.prd_weight,
-                    S2.fund_nm
-                FROM TBL_RESULT_MPLIST S1
-                LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
-                    ON S2.fund_cd = S1.prd_cd 
-                    AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
-                INNER JOIN (
-                    SELECT port_cd, MAX(rebal_date) AS rebal_date 
-                    FROM TBL_RESULT_MPLIST 
-                    WHERE auth_id = :auth_id AND rebal_date <= :target_date 
-                    GROUP BY port_cd
-                ) S3 
-                    ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
-                WHERE S1.auth_id = :auth_id
-                ORDER BY S1.port_cd ASC
-                """
+                raw_df = fetch_mp_list_data(connection, target_date, "foss")
 
-                # 쿼리 실행 및 DataFrame 생성
-                raw_df = pd.read_sql(
-                    text(query),
-                    connection,
-                    params={"target_date": target_date, "auth_id": "foss"},
-                )
+                # 데이터 전처리
+                raw_df = preprocess_mp_list_data(raw_df)
 
-                # pandas에서 datalength 및 substring 처리
-                # fund_nm 길이 100 초과 시 자르기
-                raw_df["fund_nm"] = raw_df["fund_nm"].fillna("")
-                raw_df["fund_nm"] = raw_df["fund_nm"].apply(
-                    lambda x: x[:100] if len(x) > 100 else x
-                )
-
-                # RIGHT(S1.port_cd, 1)
-                raw_df["port_cd_last_char"] = raw_df["port_cd"].str[-1]
-
-                # prd_gb 매핑 (CASE WHEN 처리)
-                raw_df["prd_gb_mapped"] = raw_df["prd_gb"].map(
-                    {"f12": "77", "f11": "61"}
-                )
-
-                # lst 컬럼 생성
-                raw_df["lst"] = (
-                    raw_df["port_cd_last_char"]
-                    + ";"
-                    + raw_df["prd_gb_mapped"]
-                    + ";"
-                    + raw_df["prd_cd"]
-                    + ";"
-                    + raw_df["fund_nm"]
-                    + ";"
-                    + (raw_df["prd_weight"] / 100).round(2).astype(str)
-                    + ";"
-                )
-
-                # ROW_NUMBER (idx) 추가
-                raw_df["idx"] = raw_df.index + 1
-
-                # 필요한 컬럼만 선택
-                indate = datetime.now().strftime("%Y%m%d%H%M%S")
-                send_filename = sSetFile
-
-                final_df = raw_df[["idx", "lst"]].copy()
-                final_df["indate"] = indate
-                final_df["send_filename"] = send_filename
-                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
-                final_df = final_df.sort_values(by="idx").reset_index(drop=True)
+                # Final Dataframe
+                final_df = prepare_final_df(raw_df, sSetFile)
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_df.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
+                insert_bcpdata(connection, final_df)
                 print(
                     "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
@@ -946,7 +869,7 @@ def get_recent_business_date(target_date):
     return recent_business_date
 
 
-def get_tmp_riskgrade(engine, auth_id):
+def get_tmp_riskgrade(connection, auth_id):
     query = """
     SELECT 
         auth_id, 
@@ -957,10 +880,11 @@ def get_tmp_riskgrade(engine, auth_id):
     WHERE auth_id = :auth_id
     GROUP BY auth_id, port_cd, prd_gb
     """
-    return pd.read_sql(text(query), engine.connect(), params={"auth_id": auth_id})
+
+    return pd.read_sql(text(query), connection, params={"auth_id": auth_id})
 
 
-def get_tmp_return(engine, sFndDate):
+def get_tmp_return(connection, sFndDate):
     terms = [
         ("1d", sFndDate, sFndDate),
         ("1m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
@@ -982,7 +906,7 @@ def get_tmp_return(engine, sFndDate):
     SELECT auth_id, port_cd, trddate, rtn_1d
     FROM TBL_RESULT_RETURN
     """
-    result_return = pd.read_sql(text(query), engine.connect())
+    result_return = pd.read_sql(text(query), connection)
 
     all_returns = []
     for _, row in term_df.iterrows():
@@ -1029,10 +953,11 @@ def calculate_performance(tmp_riskgrade, tmp_return):
     return tmp_performance[["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]]
 
 
-def get_tmp_performance(engine, auth_id, sFndDate):
-    tmp_riskgrade = get_tmp_riskgrade(engine, auth_id)
-    tmp_return = get_tmp_return(engine, sFndDate)
+def get_tmp_performance(connection, auth_id, sFndDate):
+    tmp_riskgrade = get_tmp_riskgrade(connection, auth_id)
+    tmp_return = get_tmp_return(connection, sFndDate)
     tmp_performance = calculate_performance(tmp_riskgrade, tmp_return)
+
     return tmp_performance
 
 
@@ -1046,6 +971,7 @@ def merge_terms(tmp_performance, terms):
             suffixes=("", f"_{term}"),
             how="left",
         )
+
     return merged
 
 
@@ -1088,7 +1014,72 @@ def create_return_lst_column(df, sFndDate):
         ),
         axis=1
     )
+
     return df
+
+
+def fetch_mp_list_data(connection, target_date, auth_id):
+    query = """
+    SELECT 
+        S1.port_cd,
+        S1.prd_gb,
+        S1.prd_cd,
+        S1.prd_weight,
+        S2.fund_nm
+    FROM TBL_RESULT_MPLIST S1
+    LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
+        ON S2.fund_cd = S1.prd_cd 
+        AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
+    INNER JOIN (
+        SELECT port_cd, MAX(rebal_date) AS rebal_date 
+        FROM TBL_RESULT_MPLIST 
+        WHERE auth_id = :auth_id AND rebal_date <= :target_date 
+        GROUP BY port_cd
+    ) S3 
+        ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
+    WHERE S1.auth_id = :auth_id
+    ORDER BY S1.port_cd ASC
+    """
+
+    return pd.read_sql(
+        text(query),
+        connection,
+        params={"target_date": target_date, "auth_id": auth_id},
+    )
+
+
+def preprocess_mp_list_data(raw_df):
+    # fund_nm 길이 100 초과 시 자르기
+    raw_df["fund_nm"] = raw_df["fund_nm"].fillna("")
+    raw_df["fund_nm"] = raw_df["fund_nm"].apply(
+        lambda x: x[:100] if len(x) > 100 else x
+    )
+
+    # port_cd의 마지막 문자 추출
+    raw_df["port_cd_last_char"] = raw_df["port_cd"].str[-1]
+
+    # prd_gb 매핑
+    prd_gb_map = {"f12": "77", "f11": "61"}
+    raw_df["prd_gb_mapped"] = raw_df["prd_gb"].map(prd_gb_map)
+
+    # lst 컬럼 생성
+    raw_df["lst"] = (
+        raw_df["port_cd_last_char"]
+        + ";"
+        + raw_df["prd_gb_mapped"]
+        + ";"
+        + raw_df["prd_cd"]
+        + ";"
+        + raw_df["fund_nm"]
+        + ";"
+        + (raw_df["prd_weight"] / 100).round(2).astype(str)
+        + ";"
+    )
+
+    # ROW_NUMBER (idx) 추가
+    raw_df["idx"] = raw_df.index + 1
+
+    return raw_df
 
 
 def prepare_final_df(merged, sSetFile):
