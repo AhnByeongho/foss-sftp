@@ -1,10 +1,10 @@
 import pandas as pd
-import numpy as np
+import holidays
 import os
 import csv
 from sqlalchemy import create_engine, text
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def get_sqlalchemy_connection(db_config):
@@ -276,23 +276,9 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
         with engine.connect() as connection:
             with connection.begin():
                 # 최근 영업일 계산
-                query = """
-                SELECT TOP 1 trddate
-                FROM (
-                    SELECT trddate, holiday_yn, 
-                            ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
-                    FROM TBL_HOLIDAY
-                    WHERE trddate <= :target_date
-                ) AS S1
-                WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
-                """
-                result = connection.execute(
-                    text(query), {"target_date": target_date}
-                ).scalar()
+                sFndDate = get_recent_business_date(target_date)
 
-                if result:
-                    sFndDate = result
-                else:
+                if not sFndDate:
                     raise ValueError("No valid fund base date found.")
 
                 # 생성해야 되는 데이터 확인
@@ -327,272 +313,21 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                     )
                     return  # 프로세스 중단
 
-                # TMP_RISKGRADE 데이터프레임 생성
-                tmp_riskgrade_query = """
-                SELECT 
-                    auth_id, 
-                    port_cd, 
-                    RIGHT(port_cd, 1) AS risk_grade,
-                    prd_gb
-                FROM TBL_RESULT_MPLIST
-                WHERE auth_id = :auth_id
-                GROUP BY auth_id, port_cd, prd_gb
-                """
-                TMP_RISKGRADE = pd.read_sql(
-                    text(tmp_riskgrade_query),
-                    engine.connect(),
-                    params={"auth_id": "foss"},
-                )
-
-                # TMP_RETURN 데이터프레임 생성
-                terms = [
-                    ("1d", sFndDate, sFndDate),
-                    (
-                        "1m",
-                        (
-                            pd.to_datetime(sFndDate)
-                            - pd.DateOffset(months=1)
-                            + pd.DateOffset(days=1)
-                        ).strftime("%Y%m%d"),
-                        sFndDate,
-                    ),
-                    (
-                        "3m",
-                        (
-                            pd.to_datetime(sFndDate)
-                            - pd.DateOffset(months=3)
-                            + pd.DateOffset(days=1)
-                        ).strftime("%Y%m%d"),
-                        sFndDate,
-                    ),
-                    (
-                        "6m",
-                        (
-                            pd.to_datetime(sFndDate)
-                            - pd.DateOffset(months=6)
-                            + pd.DateOffset(days=1)
-                        ).strftime("%Y%m%d"),
-                        sFndDate,
-                    ),
-                    (
-                        "1y",
-                        (
-                            pd.to_datetime(sFndDate)
-                            - pd.DateOffset(years=1)
-                            + pd.DateOffset(days=1)
-                        ).strftime("%Y%m%d"),
-                        sFndDate,
-                    ),
-                    ("all", "20181203", sFndDate),
-                ]
-                valid_terms = [
-                    (term, start, end)
-                    for term, start, end in terms
-                    if pd.to_datetime(start, format="%Y%m%d", errors="coerce")
-                    >= pd.to_datetime("20181204", format="%Y%m%d")
-                    or term == "all"
-                ]
-                term_df = pd.DataFrame(
-                    valid_terms, columns=["term", "start_dt", "end_dt"]
-                )
-
-                result_return_query = """
-                SELECT auth_id, port_cd, trddate, rtn_1d
-                FROM TBL_RESULT_RETURN
-                """
-                TBL_RESULT_RETURN = pd.read_sql(
-                    text(result_return_query), engine.connect()
-                )
-
-                all_returns = []
-
-                # term_df를 사용해 TBL_RESULT_RETURN을 필터링하고 term, start_dt, end_dt 추가
-                for _, term_row in term_df.iterrows():
-                    start_dt = term_row["start_dt"]
-                    end_dt = term_row["end_dt"]
-                    term = term_row["term"]
-
-                    # 기간 조건에 맞는 데이터를 필터링
-                    filtered_return = TBL_RESULT_RETURN[
-                        (TBL_RESULT_RETURN["trddate"] >= start_dt)
-                        & (TBL_RESULT_RETURN["trddate"] <= end_dt)
-                    ].copy()
-                    filtered_return["term"] = term
-                    filtered_return["start_dt"] = start_dt
-                    filtered_return["end_dt"] = end_dt
-
-                    all_returns.append(filtered_return)
-
-                # S3: 모든 필터링된 데이터를 병합
-                S3 = pd.concat(all_returns, ignore_index=True)
-
-                # TMP_RISKGRADE와 S3를 LEFT OUTER JOIN
-                TMP_RETURN = pd.merge(
-                    TMP_RISKGRADE,  # S1
-                    S3,  # S3
-                    on=["auth_id", "port_cd"],  # JOIN 조건
-                    how="left",  # LEFT OUTER JOIN
-                    suffixes=("", "_extra"),
-                )
-
-                # 로그 수익률 계산
-                TMP_RETURN["log_rt"] = np.log(TMP_RETURN["rtn_1d"] + 1)
-
-                TMP_RETURN = TMP_RETURN[
-                    [
-                        "auth_id",
-                        "port_cd",
-                        "risk_grade",
-                        "prd_gb",
-                        "term",
-                        "start_dt",
-                        "end_dt",
-                        "trddate",
-                        "rtn_1d",
-                        "log_rt",
-                    ]
-                ]
-
                 # TMP_PERFORMANCE 데이터프레임 생성
-                TMP_PERFORMANCE = TMP_RETURN.groupby(
-                    ["auth_id", "term", "risk_grade", "prd_gb"], as_index=False
-                ).agg(total_log_rt=("log_rt", "sum"))
+                TMP_PERFORMANCE = get_tmp_performance(connection, "foss", sFndDate)
 
-                # total_rt 계산: EXP(SUM(log_rt)) * 100 - 100
-                TMP_PERFORMANCE["total_rt"] = (
-                    (np.exp(TMP_PERFORMANCE["total_log_rt"]) * 100) - 100
-                ).round(2)
-
-                TMP_PERFORMANCE = TMP_PERFORMANCE[
-                    ["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]
-                ]
-
-                # TMP_PERFORMANCE에서 term별 데이터 분리
-                tmp_1m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1m"].copy()
-                tmp_3m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "3m"].copy()
-                tmp_6m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "6m"].copy()
-                tmp_1y = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1y"].copy()
-                tmp_all = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "all"].copy()
-                tmp_1d = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1d"].copy()
-
-                # LEFT JOIN 수행
-                merged = tmp_1d.merge(
-                    tmp_1m,
-                    on=["risk_grade", "prd_gb"],
-                    suffixes=("", "_1m"),
-                    how="left",
-                )
-                merged = merged.merge(
-                    tmp_3m,
-                    on=["risk_grade", "prd_gb"],
-                    suffixes=("", "_3m"),
-                    how="left",
-                )
-                merged = merged.merge(
-                    tmp_6m,
-                    on=["risk_grade", "prd_gb"],
-                    suffixes=("", "_6m"),
-                    how="left",
-                )
-                merged = merged.merge(
-                    tmp_1y,
-                    on=["risk_grade", "prd_gb"],
-                    suffixes=("", "_1y"),
-                    how="left",
-                )
-                merged = merged.merge(
-                    tmp_all,
-                    on=["risk_grade", "prd_gb"],
-                    suffixes=("", "_all"),
-                    how="left",
-                )
-
-                # 열 계산
-                def map_expected_return(row):
-                    if row["risk_grade"] == "1":
-                        return "9.10" if row["prd_gb"] == "f12" else "9.04"
-                    elif row["risk_grade"] == "2":
-                        return "12.40" if row["prd_gb"] == "f12" else "12.53"
-                    elif row["risk_grade"] == "3":
-                        return "16.02" if row["prd_gb"] == "f12" else "16.64"
-                    elif row["risk_grade"] == "4":
-                        return "19.14" if row["prd_gb"] == "f12" else "19.80"
-                    elif row["risk_grade"] == "5":
-                        return "21.15" if row["prd_gb"] == "f12" else "22.99"
-                    return ""
-
-                def map_volatility(row):
-                    if row["risk_grade"] == "1":
-                        return "3.20" if row["prd_gb"] == "f12" else "3.10"
-                    elif row["risk_grade"] == "2":
-                        return "4.46" if row["prd_gb"] == "f12" else "4.57"
-                    elif row["risk_grade"] == "3":
-                        return "6.68" if row["prd_gb"] == "f12" else "6.87"
-                    elif row["risk_grade"] == "4":
-                        return "8.60" if row["prd_gb"] == "f12" else "9.21"
-                    elif row["risk_grade"] == "5":
-                        return "10.90" if row["prd_gb"] == "f12" else "11.51"
-                    return ""
-
-                merged["expected_return"] = merged.apply(map_expected_return, axis=1)
-                merged["volatility"] = merged.apply(map_volatility, axis=1)
-
-                # 데이터 정렬
-                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(
-                    drop=True
-                )
-
-                # 데이터 정리 및 생성
-                merged["lst"] = (
-                    sFndDate
-                    + ";"
-                    + merged["risk_grade"]
-                    + ";"
-                    + merged["prd_gb"].map({"f12": "77", "f11": "61"})
-                    + ";"
-                    + merged["total_rt"].fillna("").astype(str)
-                    + ";"
-                    + merged["total_rt_3m"].fillna("").astype(str)
-                    + ";"
-                    + merged["total_rt_6m"].fillna("").astype(str)
-                    + ";"
-                    + merged["total_rt_1y"].fillna("").astype(str)
-                    + ";"
-                    + merged["total_rt_all"].fillna("").astype(str)
-                    + ";"
-                    + merged["expected_return"]
-                    + ";"
-                    + merged["volatility"]
-                    + ";"
-                    + merged["total_rt_1m"].fillna("").astype(str)
-                    + ";"
-                )
-
-                # idx 컬럼 생성 (정렬 이후)
+                terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
+                merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
+                merged = add_expected_return_and_volatility(merged)
+                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(drop=True)
+                merged = create_return_lst_column(merged, sFndDate)
                 merged["idx"] = merged.index + 1
 
-                # 필요한 열 추출
-                final_df = merged[["idx", "lst"]].copy()
-                final_df["indate"] = datetime.now().strftime("%Y%m%d%H%M%S")
-                final_df["send_filename"] = sSetFile
-                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
+                # Final Dataframe
+                final_df = prepare_final_df(merged, sSetFile)
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_df.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
+                insert_bcpdata(connection, final_df)
                 print(
                     "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
@@ -648,93 +383,16 @@ def process_mp_list(engine, target_date, sftp_client):
         with engine.connect() as connection:
             with connection.begin():
                 # MP List 데이터 조회
-                query = """
-                SELECT 
-                    S1.port_cd,
-                    S1.prd_gb,
-                    S1.prd_cd,
-                    S1.prd_weight,
-                    S2.fund_nm
-                FROM TBL_RESULT_MPLIST S1
-                LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
-                    ON S2.fund_cd = S1.prd_cd 
-                    AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
-                INNER JOIN (
-                    SELECT port_cd, MAX(rebal_date) AS rebal_date 
-                    FROM TBL_RESULT_MPLIST 
-                    WHERE auth_id = :auth_id AND rebal_date <= :target_date 
-                    GROUP BY port_cd
-                ) S3 
-                    ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
-                WHERE S1.auth_id = :auth_id
-                ORDER BY S1.port_cd ASC
-                """
+                raw_df = fetch_mp_list_data(connection, target_date, "foss")
 
-                # 쿼리 실행 및 DataFrame 생성
-                raw_df = pd.read_sql(
-                    text(query),
-                    connection,
-                    params={"target_date": target_date, "auth_id": "foss"},
-                )
+                # 데이터 전처리
+                raw_df = preprocess_mp_list_data(raw_df)
 
-                # pandas에서 datalength 및 substring 처리
-                # fund_nm 길이 100 초과 시 자르기
-                raw_df["fund_nm"] = raw_df["fund_nm"].fillna("")
-                raw_df["fund_nm"] = raw_df["fund_nm"].apply(
-                    lambda x: x[:100] if len(x) > 100 else x
-                )
-
-                # RIGHT(S1.port_cd, 1)
-                raw_df["port_cd_last_char"] = raw_df["port_cd"].str[-1]
-
-                # prd_gb 매핑 (CASE WHEN 처리)
-                raw_df["prd_gb_mapped"] = raw_df["prd_gb"].map(
-                    {"f12": "77", "f11": "61"}
-                )
-
-                # lst 컬럼 생성
-                raw_df["lst"] = (
-                    raw_df["port_cd_last_char"]
-                    + ";"
-                    + raw_df["prd_gb_mapped"]
-                    + ";"
-                    + raw_df["prd_cd"]
-                    + ";"
-                    + raw_df["fund_nm"]
-                    + ";"
-                    + (raw_df["prd_weight"] / 100).round(2).astype(str)
-                    + ";"
-                )
-
-                # ROW_NUMBER (idx) 추가
-                raw_df["idx"] = raw_df.index + 1
-
-                # 필요한 컬럼만 선택
-                indate = datetime.now().strftime("%Y%m%d%H%M%S")
-                send_filename = sSetFile
-
-                final_df = raw_df[["idx", "lst"]].copy()
-                final_df["indate"] = indate
-                final_df["send_filename"] = send_filename
-                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
-                final_df = final_df.sort_values(by="idx").reset_index(drop=True)
+                # Final Dataframe
+                final_df = prepare_final_df(raw_df, sSetFile)
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_df.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
+                insert_bcpdata(connection, final_df)
                 print(
                     "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
@@ -801,73 +459,13 @@ def process_rebalcus(
         with engine.connect() as connection:
             with connection.begin():
                 # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
-                rebal_day_query = """
-                SELECT 
-                    CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END AS rebal_day_yn
-                FROM TBL_RESULT_MPLIST 
-                WHERE auth_id = :auth_id 
-                    AND rebal_date = :target_date 
-                    AND prd_gb = :prd_gb
-                """
-                # 연금(f12) 리밸런싱 여부
-                result_f12 = connection.execute(
-                    text(rebal_day_query),
-                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f12"},
-                ).scalar()
-                sRebalDayYN = result_f12
-
-                # 일반(f11) 리밸런싱 여부
-                result_f11 = connection.execute(
-                    text(rebal_day_query),
-                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f11"},
-                ).scalar()
-                sRebalDayYN2 = result_f11
+                sRebalDayYN = check_rebalancing(connection, target_date, "foss", "f12")     # 연금(f12) 리밸런싱 여부
+                sRebalDayYN2 = check_rebalancing(connection, target_date, "foss", "f11")     # 연금(f11) 리밸런싱 여부
 
                 i_opent_day = 3  # 영업일
 
-                # 연금(f12) 다음 리밸런싱 날짜 계산
-                query_next_rebal_date_pension = """
-                    SELECT MIN(trddate) AS next_rebal_date
-                    FROM (
-                        SELECT 
-                            trddate,
-                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-                        FROM TBL_HOLIDAY
-                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
-                            AND holiday_yn = 'N'
-                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-                    ) S1
-                    WHERE S1.trddate >= :target_date
-                        AND S1.MonthCnt = :i_opent_day
-                """
-                result_pension = connection.execute(
-                    text(query_next_rebal_date_pension),
-                    {"target_date": target_date, "i_opent_day": i_opent_day},
-                ).fetchone()
-
-                next_rebal_date_pension = result_pension[0] if result_pension else ""
-
-                # 일반(f11) 다음 리밸런싱 날짜 계산
-                query_next_rebal_date_general = """
-                    SELECT MIN(trddate) AS next_rebal_date
-                    FROM (
-                        SELECT 
-                            trddate,
-                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-                        FROM TBL_HOLIDAY
-                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
-                            AND holiday_yn = 'N'
-                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-                    ) S1
-                    WHERE S1.trddate >= :target_date
-                        AND S1.MonthCnt = :i_opent_day
-                """
-                result_general = connection.execute(
-                    text(query_next_rebal_date_general),
-                    {"target_date": target_date, "i_opent_day": i_opent_day},
-                ).fetchone()
-
-                next_rebal_date_general = result_general[0] if result_general else ""
+                # 연금(f12), 일반(f11) 다음 리밸런싱 날짜 계산
+                next_rebal_date = get_next_rebalancing_date(connection, target_date, i_opent_day)
 
                 # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
                 current_date = datetime.now().strftime("%Y%m%d")
@@ -877,123 +475,21 @@ def process_rebalcus(
                         sRebalDayYN2 = "Y"
 
                 # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
-                query_rebalcus = """
-                    SELECT 
-                        :indate AS indate,
-                        :send_filename AS send_filename,
-                        ROW_NUMBER() OVER (ORDER BY customer_id ASC) AS idx,
-                        customer_id + ';' + 
-                        CASE 
-                            WHEN :rebal_day_yn = 'N' THEN 'N'
-                            ELSE 
-                                CASE 
-                                    WHEN :rebal_day_yn = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y'
-                                    ELSE 'N'
-                                END
-                        END + ';' + 
-                        :next_rebal_date + ';' AS lst
-                    FROM TBL_FOSS_CUSTOMERACCOUNT
-                    WHERE trddate = :target_date
-                        AND investgb = :investgb
-                """
+                pension_data = fetch_rebalcus_data(connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile)   # 연금(f12) 데이터 조회
+                general_data = fetch_rebalcus_data(connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile)  # 일반(f11) 데이터 조회
 
-                # 연금(f12) 데이터 조회
-                pension_data = pd.read_sql(
-                    text(query_rebalcus),
-                    connection,
-                    params={
-                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "send_filename": sSetFile,
-                        "rebal_day_yn": sRebalDayYN,
-                        "next_rebal_date": next_rebal_date_pension,
-                        "target_date": target_date,
-                        "investgb": "77",
-                    },
-                )
-
-                # 일반(f11) 데이터 조회
-                general_data = pd.read_sql(
-                    text(query_rebalcus),
-                    connection,
-                    params={
-                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "send_filename": sSetFile,
-                        "rebal_day_yn": sRebalDayYN2,
-                        "next_rebal_date": next_rebal_date_general,
-                        "target_date": target_date,
-                        "investgb": "61",
-                    },
-                )
-
-                # 데이터 결합 (UNION ALL)
-                final_rebalcus_data = pd.concat(
-                    [pension_data, general_data], ignore_index=True
-                )
-
-                # ROW_NUMBER() 기능 재현
-                final_rebalcus_data["idx"] = range(1, len(final_rebalcus_data) + 1)
-
-                final_rebalcus_data = final_rebalcus_data.sort_values(
-                    by="idx"
-                ).reset_index(drop=True)
+                # Final Dataframe
+                final_rebalcus_data = prepare_final_rebalcus_df([pension_data, general_data])
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_rebalcus_data.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
+                insert_bcpdata(connection, final_rebalcus_data)
                 print(
                     "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
 
                 # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
                 if manual_customer_ids is not None and manual_rebal_yn is not None:
-                    # 수동 리밸런싱 신호 전송 작업 수행
-                    for customer_id in manual_customer_ids:
-                        # 업데이트할 lst 값 생성
-                        updated_lst_value = (
-                            f"{customer_id};{manual_rebal_yn};{target_date};"
-                        )
-
-                        # 데이터프레임 내 업데이트
-                        final_rebalcus_data.loc[
-                            final_rebalcus_data["lst"].str.startswith(
-                                f"{customer_id};"
-                            ),
-                            "lst",
-                        ] = updated_lst_value
-
-                        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
-                        update_query = """
-                        UPDATE TBL_FOSS_BCPDATA
-                        SET lst = :updated_lst
-                        WHERE send_filename = :send_filename
-                            AND indate = :indate
-                            AND lst LIKE :customer_id_prefix
-                        """
-                        connection.execute(
-                            text(update_query),
-                            {
-                                "updated_lst": updated_lst_value,
-                                "send_filename": sSetFile,
-                                "indate": final_rebalcus_data["indate"].iloc[0],
-                                "customer_id_prefix": f"{customer_id}%;",
-                            },
-                        )
-                    print(
-                        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
-                    )
+                    update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile)
 
                 # CSV 파일 저장
                 local_file_path = (
@@ -1140,7 +636,7 @@ def process_report(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_info_eof(engine, target_date, sftp_client):
+def process_mp_info_eof(target_date, sftp_client):
     """
     Generates an EOF (End of File) for mp_info and uploads it to the SFTP server.
 
@@ -1180,3 +676,385 @@ def process_mp_info_eof(engine, target_date, sftp_client):
                 os.remove(local_file_path)
         except Exception as e:
             print(f"Error occurred while deleting the temporary CSV file: {e}")
+
+
+def get_recent_business_date(target_date):
+    kr_holidays = holidays.KR()
+    target_date = datetime.strptime(target_date, "%Y%m%d")
+
+    # 오늘이 영업일인지 확인
+    is_today_business_day = target_date.weekday() < 5 and target_date not in kr_holidays
+
+    # 오늘이 영업일이면 오늘을 제외하고 1영업일 전을 찾기
+    if is_today_business_day:
+        recent_business_date = target_date - timedelta(days=1)
+        while recent_business_date.weekday() >= 5 or recent_business_date in kr_holidays:
+            recent_business_date -= timedelta(days=1)
+        return recent_business_date.strftime("%Y%m%d")
+
+    # 오늘이 공휴일이면 2영업일 전을 찾기
+    else:
+        recent_business_date = target_date - timedelta(days=1)
+        count = 0
+        while count < 2:
+            if recent_business_date.weekday() < 5 and recent_business_date not in kr_holidays:
+                count += 1
+            if count < 2:
+                recent_business_date -= timedelta(days=1)
+    recent_business_date = recent_business_date.strftime("%Y%m%d")
+
+    return recent_business_date
+
+
+def get_tmp_riskgrade(connection, auth_id):
+    query = """
+    SELECT 
+        auth_id, 
+        port_cd, 
+        RIGHT(port_cd, 1) AS risk_grade,
+        prd_gb
+    FROM TBL_RESULT_MPLIST
+    WHERE auth_id = :auth_id
+    GROUP BY auth_id, port_cd, prd_gb
+    """
+
+    return pd.read_sql(text(query), connection, params={"auth_id": auth_id})
+
+
+def get_tmp_return(connection, sFndDate):
+    terms = [
+        ("1d", sFndDate, sFndDate),
+        ("1m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
+        ("3m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=3) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
+        ("6m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=6) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
+        ("1y", (pd.to_datetime(sFndDate) - pd.DateOffset(years=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
+        ("all", "20181203", sFndDate),
+    ]
+
+    valid_terms = [
+        (term, start, end)
+        for term, start, end in terms
+        if pd.to_datetime(start, format="%Y%m%d", errors="coerce") >= pd.to_datetime("20181204", format="%Y%m%d") or term == "all"
+    ]
+
+    term_df = pd.DataFrame(valid_terms, columns=["term", "start_dt", "end_dt"])
+
+    query = """
+    SELECT auth_id, port_cd, trddate, rtn_1d
+    FROM TBL_RESULT_RETURN
+    """
+    result_return = pd.read_sql(text(query), connection)
+
+    all_returns = []
+    for _, row in term_df.iterrows():
+        filtered = result_return[
+            (result_return["trddate"] >= row["start_dt"]) &
+            (result_return["trddate"] <= row["end_dt"])
+        ].copy()
+        filtered["term"] = row["term"]
+        filtered["start_dt"] = row["start_dt"]
+        filtered["end_dt"] = row["end_dt"]
+        all_returns.append(filtered)
+
+    return pd.concat(all_returns, ignore_index=True)
+
+
+def calculate_performance(tmp_riskgrade, tmp_return):
+    tmp_merged = pd.merge(
+        tmp_riskgrade,
+        tmp_return,
+        on=["auth_id", "port_cd"],
+        how="left",
+        suffixes=("", "_extra"),
+    )
+
+    tmp_return = tmp_merged[
+        [
+            "auth_id",
+            "port_cd",
+            "risk_grade",
+            "prd_gb",
+            "term",
+            "start_dt",
+            "end_dt",
+            "trddate",
+            "rtn_1d",
+        ]
+    ]
+
+    tmp_performance = tmp_return.groupby(["auth_id", "term", "risk_grade", "prd_gb"], as_index=False).agg(
+        total_rt=("rtn_1d", lambda x: (x + 1).prod() * 100 - 100)
+    )
+    tmp_performance["total_rt"] = tmp_performance["total_rt"].round(2)
+
+    return tmp_performance[["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]]
+
+
+def get_tmp_performance(connection, auth_id, sFndDate):
+    tmp_riskgrade = get_tmp_riskgrade(connection, auth_id)
+    tmp_return = get_tmp_return(connection, sFndDate)
+    tmp_performance = calculate_performance(tmp_riskgrade, tmp_return)
+
+    return tmp_performance
+
+
+def merge_terms(tmp_performance, terms):
+    merged = tmp_performance[tmp_performance["term"] == "1d"].copy()
+    for term in terms:
+        term_df = tmp_performance[tmp_performance["term"] == term].copy()
+        merged = merged.merge(
+            term_df,
+            on=["risk_grade", "prd_gb"],
+            suffixes=("", f"_{term}"),
+            how="left",
+        )
+
+    return merged
+
+
+expected_return_map = {
+    "1": {"f12": "9.10", "f11": "9.04"},
+    "2": {"f12": "12.40", "f11": "12.53"},
+    "3": {"f12": "16.02", "f11": "16.64"},
+    "4": {"f12": "19.14", "f11": "19.80"},
+    "5": {"f12": "21.15", "f11": "22.99"},
+}
+
+volatility_map = {
+    "1": {"f12": "3.20", "f11": "3.10"},
+    "2": {"f12": "4.46", "f11": "4.57"},
+    "3": {"f12": "6.68", "f11": "6.87"},
+    "4": {"f12": "8.60", "f11": "9.21"},
+    "5": {"f12": "10.90", "f11": "11.51"},
+}
+
+def add_expected_return_and_volatility(df):
+    df["expected_return"] = df.apply(lambda row: expected_return_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
+    df["volatility"] = df.apply(lambda row: volatility_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
+    return df
+
+
+def create_return_lst_column(df, sFndDate):
+    df["lst"] = df.apply(
+        lambda row: (
+            f"{sFndDate};"
+            f"{row['risk_grade']};"
+            f"{ {'f12': '77', 'f11': '61'}.get(row['prd_gb'], '') };"
+            f"{row['total_rt']};"
+            f"{row['total_rt_3m']};"
+            f"{row['total_rt_6m']};"
+            f"{row['total_rt_1y']};"
+            f"{row['total_rt_all']};"
+            f"{row['expected_return']};"
+            f"{row['volatility']};"
+            f"{row['total_rt_1m']};"
+        ),
+        axis=1
+    )
+
+    return df
+
+
+def fetch_mp_list_data(connection, target_date, auth_id):
+    query = """
+    SELECT 
+        S1.port_cd,
+        S1.prd_gb,
+        S1.prd_cd,
+        S1.prd_weight,
+        S2.fund_nm
+    FROM TBL_RESULT_MPLIST S1
+    LEFT OUTER JOIN TBL_FOSS_UNIVERSE S2 
+        ON S2.fund_cd = S1.prd_cd 
+        AND S2.trddate = (SELECT MAX(trddate) FROM TBL_FOSS_UNIVERSE)
+    INNER JOIN (
+        SELECT port_cd, MAX(rebal_date) AS rebal_date 
+        FROM TBL_RESULT_MPLIST 
+        WHERE auth_id = :auth_id AND rebal_date <= :target_date 
+        GROUP BY port_cd
+    ) S3 
+        ON S3.port_cd = S1.port_cd AND S3.rebal_date = S1.rebal_date
+    WHERE S1.auth_id = :auth_id
+    ORDER BY S1.port_cd ASC
+    """
+
+    return pd.read_sql(
+        text(query),
+        connection,
+        params={"target_date": target_date, "auth_id": auth_id},
+    )
+
+
+def preprocess_mp_list_data(raw_df):
+    # fund_nm 길이 100 초과 시 자르기
+    raw_df["fund_nm"] = raw_df["fund_nm"].fillna("")
+    raw_df["fund_nm"] = raw_df["fund_nm"].apply(
+        lambda x: x[:100] if len(x) > 100 else x
+    )
+
+    # port_cd의 마지막 문자 추출
+    raw_df["port_cd_last_char"] = raw_df["port_cd"].str[-1]
+
+    # prd_gb 매핑
+    prd_gb_map = {"f12": "77", "f11": "61"}
+    raw_df["prd_gb_mapped"] = raw_df["prd_gb"].map(prd_gb_map)
+
+    # lst 컬럼 생성
+    raw_df["lst"] = (
+        raw_df["port_cd_last_char"]
+        + ";"
+        + raw_df["prd_gb_mapped"]
+        + ";"
+        + raw_df["prd_cd"]
+        + ";"
+        + raw_df["fund_nm"]
+        + ";"
+        + (raw_df["prd_weight"] / 100).round(2).astype(str)
+        + ";"
+    )
+
+    # ROW_NUMBER (idx) 추가
+    raw_df["idx"] = raw_df.index + 1
+
+    return raw_df
+
+
+def check_rebalancing(connection, target_date, auth_id, prd_gb):
+    query = """
+    SELECT 
+        CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END AS rebal_day_yn
+    FROM TBL_RESULT_MPLIST 
+    WHERE auth_id = :auth_id 
+        AND rebal_date = :target_date 
+        AND prd_gb = :prd_gb
+    """
+    result = connection.execute(
+        text(query),
+        {"auth_id": auth_id, "target_date": target_date, "prd_gb": prd_gb},
+    ).scalar()
+
+    return result
+
+
+def get_next_rebalancing_date(connection, target_date, i_opent_day):
+    query = """
+        SELECT MIN(trddate) AS next_rebal_date
+        FROM (
+            SELECT 
+                trddate,
+                ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
+            FROM TBL_HOLIDAY
+            WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
+                AND holiday_yn = 'N'
+                AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
+        ) S1
+        WHERE S1.trddate >= :target_date
+            AND S1.MonthCnt = :i_opent_day
+    """
+    result = connection.execute(
+        text(query),
+        {"target_date": target_date, "i_opent_day": i_opent_day},
+    ).fetchone()
+    
+    return result[0] if result else ""
+
+
+def fetch_rebalcus_data(connection, target_date, investgb, rebal_day_yn, next_rebal_date, sSetFile):
+    query = """
+        SELECT 
+            :indate AS indate,
+            :send_filename AS send_filename,
+            ROW_NUMBER() OVER (ORDER BY customer_id ASC) AS idx,
+            customer_id + ';' + 
+            CASE 
+                WHEN :rebal_day_yn = 'N' THEN 'N'
+                ELSE 
+                    CASE 
+                        WHEN :rebal_day_yn = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y'
+                        ELSE 'N'
+                    END
+            END + ';' + 
+            :next_rebal_date + ';' AS lst
+        FROM TBL_FOSS_CUSTOMERACCOUNT
+        WHERE trddate = :target_date
+            AND investgb = :investgb
+    """
+    return pd.read_sql(
+        text(query),
+        connection,
+        params={
+            "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+            "send_filename": sSetFile,
+            "rebal_day_yn": rebal_day_yn,
+            "next_rebal_date": next_rebal_date,
+            "target_date": target_date,
+            "investgb": investgb,
+        },
+    )
+
+
+def update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile):
+    for customer_id in manual_customer_ids:
+        # 업데이트할 lst 값 생성
+        updated_lst_value = f"{customer_id};{manual_rebal_yn};{target_date};"
+
+        # 데이터프레임 내 업데이트
+        final_rebalcus_data.loc[
+            final_rebalcus_data["lst"].str.startswith(f"{customer_id};"),
+            "lst",
+        ] = updated_lst_value
+
+        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
+        update_query = """
+        UPDATE TBL_FOSS_BCPDATA
+        SET lst = :updated_lst
+        WHERE send_filename = :send_filename
+            AND indate = :indate
+            AND lst LIKE :customer_id_prefix
+        """
+        connection.execute(
+            text(update_query),
+            {
+                "updated_lst": updated_lst_value,
+                "send_filename": sSetFile,
+                "indate": final_rebalcus_data["indate"].iloc[0],
+                "customer_id_prefix": f"{customer_id}%;",
+            },
+        )
+    print(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
+
+
+def prepare_final_rebalcus_df(dataframes):
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    combined_df["idx"] = range(1, len(combined_df) + 1)
+
+    return combined_df.sort_values(by="idx").reset_index(drop=True)
+
+
+def prepare_final_df(merged, sSetFile):
+    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+    
+    final_df = merged[["idx", "lst"]].copy()
+    final_df = final_df.assign(
+        indate=current_time,
+        send_filename=sSetFile
+    )[["indate", "send_filename", "idx", "lst"]]
+    
+    return final_df
+
+
+def insert_bcpdata(connection, final_df):
+    insert_query = """
+    INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+    VALUES (:indate, :send_filename, :idx, :lst)
+    """
+    for _, row in final_df.iterrows():
+        connection.execute(
+            text(insert_query),
+            {
+                "indate": row["indate"],
+                "send_filename": row["send_filename"],
+                "idx": row["idx"],
+                "lst": row["lst"],
+            },
+        )
