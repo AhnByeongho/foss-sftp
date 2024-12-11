@@ -79,8 +79,8 @@ try:
     # process_type = "RECEIVE_ACCOUNT"
     # process_type = "RECEIVE_CUSTMERFND"
     # process_type = "SEND_MPRATE"
-    process_type = "SEND_MPLIST"
-    # process_type = "SEND_REBALCUS"
+    # process_type = "SEND_MPLIST"
+    process_type = "SEND_REBALCUS"
     # process_type = "SEND_REPORT"
     # process_type = "SEND_MP_INFO_EOF"
     ##########################################################################################
@@ -140,7 +140,7 @@ try:
             process_rebalcus(engine, target_date, sftp)
 
             # 강제 리밸런싱일자 설정
-            # forced_rebal_dates = ["20231201", "20241201"]
+            # forced_rebal_dates = ["20231201", "20241211"]
             # process_rebalcus(engine, target_date, sftp, forced_rebal_dates=forced_rebal_dates)
 
             # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)

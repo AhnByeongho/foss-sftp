@@ -460,73 +460,13 @@ def process_rebalcus(
         with engine.connect() as connection:
             with connection.begin():
                 # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
-                rebal_day_query = """
-                SELECT 
-                    CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END AS rebal_day_yn
-                FROM TBL_RESULT_MPLIST 
-                WHERE auth_id = :auth_id 
-                    AND rebal_date = :target_date 
-                    AND prd_gb = :prd_gb
-                """
-                # 연금(f12) 리밸런싱 여부
-                result_f12 = connection.execute(
-                    text(rebal_day_query),
-                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f12"},
-                ).scalar()
-                sRebalDayYN = result_f12
-
-                # 일반(f11) 리밸런싱 여부
-                result_f11 = connection.execute(
-                    text(rebal_day_query),
-                    {"auth_id": "foss", "target_date": target_date, "prd_gb": "f11"},
-                ).scalar()
-                sRebalDayYN2 = result_f11
+                sRebalDayYN = check_rebalancing(connection, target_date, "foss", "f12")     # 연금(f12) 리밸런싱 여부
+                sRebalDayYN2 = check_rebalancing(connection, target_date, "foss", "f11")     # 연금(f11) 리밸런싱 여부
 
                 i_opent_day = 3  # 영업일
 
-                # 연금(f12) 다음 리밸런싱 날짜 계산
-                query_next_rebal_date_pension = """
-                    SELECT MIN(trddate) AS next_rebal_date
-                    FROM (
-                        SELECT 
-                            trddate,
-                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-                        FROM TBL_HOLIDAY
-                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
-                            AND holiday_yn = 'N'
-                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-                    ) S1
-                    WHERE S1.trddate >= :target_date
-                        AND S1.MonthCnt = :i_opent_day
-                """
-                result_pension = connection.execute(
-                    text(query_next_rebal_date_pension),
-                    {"target_date": target_date, "i_opent_day": i_opent_day},
-                ).fetchone()
-
-                next_rebal_date_pension = result_pension[0] if result_pension else ""
-
-                # 일반(f11) 다음 리밸런싱 날짜 계산
-                query_next_rebal_date_general = """
-                    SELECT MIN(trddate) AS next_rebal_date
-                    FROM (
-                        SELECT 
-                            trddate,
-                            ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
-                        FROM TBL_HOLIDAY
-                        WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
-                            AND holiday_yn = 'N'
-                            AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
-                    ) S1
-                    WHERE S1.trddate >= :target_date
-                        AND S1.MonthCnt = :i_opent_day
-                """
-                result_general = connection.execute(
-                    text(query_next_rebal_date_general),
-                    {"target_date": target_date, "i_opent_day": i_opent_day},
-                ).fetchone()
-
-                next_rebal_date_general = result_general[0] if result_general else ""
+                # 연금(f12), 일반(f11) 다음 리밸런싱 날짜 계산
+                next_rebal_date = get_next_rebalancing_date(connection, target_date, i_opent_day)
 
                 # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
                 current_date = datetime.now().strftime("%Y%m%d")
@@ -536,123 +476,21 @@ def process_rebalcus(
                         sRebalDayYN2 = "Y"
 
                 # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
-                query_rebalcus = """
-                    SELECT 
-                        :indate AS indate,
-                        :send_filename AS send_filename,
-                        ROW_NUMBER() OVER (ORDER BY customer_id ASC) AS idx,
-                        customer_id + ';' + 
-                        CASE 
-                            WHEN :rebal_day_yn = 'N' THEN 'N'
-                            ELSE 
-                                CASE 
-                                    WHEN :rebal_day_yn = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y'
-                                    ELSE 'N'
-                                END
-                        END + ';' + 
-                        :next_rebal_date + ';' AS lst
-                    FROM TBL_FOSS_CUSTOMERACCOUNT
-                    WHERE trddate = :target_date
-                        AND investgb = :investgb
-                """
+                pension_data = fetch_rebalcus_data(connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile)   # 연금(f12) 데이터 조회
+                general_data = fetch_rebalcus_data(connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile)  # 일반(f11) 데이터 조회
 
-                # 연금(f12) 데이터 조회
-                pension_data = pd.read_sql(
-                    text(query_rebalcus),
-                    connection,
-                    params={
-                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "send_filename": sSetFile,
-                        "rebal_day_yn": sRebalDayYN,
-                        "next_rebal_date": next_rebal_date_pension,
-                        "target_date": target_date,
-                        "investgb": "77",
-                    },
-                )
-
-                # 일반(f11) 데이터 조회
-                general_data = pd.read_sql(
-                    text(query_rebalcus),
-                    connection,
-                    params={
-                        "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "send_filename": sSetFile,
-                        "rebal_day_yn": sRebalDayYN2,
-                        "next_rebal_date": next_rebal_date_general,
-                        "target_date": target_date,
-                        "investgb": "61",
-                    },
-                )
-
-                # 데이터 결합 (UNION ALL)
-                final_rebalcus_data = pd.concat(
-                    [pension_data, general_data], ignore_index=True
-                )
-
-                # ROW_NUMBER() 기능 재현
-                final_rebalcus_data["idx"] = range(1, len(final_rebalcus_data) + 1)
-
-                final_rebalcus_data = final_rebalcus_data.sort_values(
-                    by="idx"
-                ).reset_index(drop=True)
+                # Final Dataframe
+                final_rebalcus_data = prepare_final_rebalcus_df([pension_data, general_data])
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_rebalcus_data.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
+                insert_bcpdata(connection, final_rebalcus_data)
                 print(
                     "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
 
                 # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
                 if manual_customer_ids is not None and manual_rebal_yn is not None:
-                    # 수동 리밸런싱 신호 전송 작업 수행
-                    for customer_id in manual_customer_ids:
-                        # 업데이트할 lst 값 생성
-                        updated_lst_value = (
-                            f"{customer_id};{manual_rebal_yn};{target_date};"
-                        )
-
-                        # 데이터프레임 내 업데이트
-                        final_rebalcus_data.loc[
-                            final_rebalcus_data["lst"].str.startswith(
-                                f"{customer_id};"
-                            ),
-                            "lst",
-                        ] = updated_lst_value
-
-                        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
-                        update_query = """
-                        UPDATE TBL_FOSS_BCPDATA
-                        SET lst = :updated_lst
-                        WHERE send_filename = :send_filename
-                            AND indate = :indate
-                            AND lst LIKE :customer_id_prefix
-                        """
-                        connection.execute(
-                            text(update_query),
-                            {
-                                "updated_lst": updated_lst_value,
-                                "send_filename": sSetFile,
-                                "indate": final_rebalcus_data["indate"].iloc[0],
-                                "customer_id_prefix": f"{customer_id}%;",
-                            },
-                        )
-                    print(
-                        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
-                    )
+                    update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile)
 
                 # CSV 파일 저장
                 local_file_path = (
@@ -1080,6 +918,118 @@ def preprocess_mp_list_data(raw_df):
     raw_df["idx"] = raw_df.index + 1
 
     return raw_df
+
+
+def check_rebalancing(connection, target_date, auth_id, prd_gb):
+    query = """
+    SELECT 
+        CASE WHEN COUNT(*) = 0 THEN 'N' ELSE 'Y' END AS rebal_day_yn
+    FROM TBL_RESULT_MPLIST 
+    WHERE auth_id = :auth_id 
+        AND rebal_date = :target_date 
+        AND prd_gb = :prd_gb
+    """
+    result = connection.execute(
+        text(query),
+        {"auth_id": auth_id, "target_date": target_date, "prd_gb": prd_gb},
+    ).scalar()
+
+    return result
+
+
+def get_next_rebalancing_date(connection, target_date, i_opent_day):
+    query = """
+        SELECT MIN(trddate) AS next_rebal_date
+        FROM (
+            SELECT 
+                trddate,
+                ROW_NUMBER() OVER (PARTITION BY LEFT(trddate, 6) ORDER BY trddate ASC) AS MonthCnt
+            FROM TBL_HOLIDAY
+            WHERE LEFT(trddate, 6) >= LEFT(:target_date, 6)
+                AND holiday_yn = 'N'
+                AND SUBSTRING(trddate, 5, 2) IN ('01', '04', '07', '10')
+        ) S1
+        WHERE S1.trddate >= :target_date
+            AND S1.MonthCnt = :i_opent_day
+    """
+    result = connection.execute(
+        text(query),
+        {"target_date": target_date, "i_opent_day": i_opent_day},
+    ).fetchone()
+    
+    return result[0] if result else ""
+
+
+def fetch_rebalcus_data(connection, target_date, investgb, rebal_day_yn, next_rebal_date, sSetFile):
+    query = """
+        SELECT 
+            :indate AS indate,
+            :send_filename AS send_filename,
+            ROW_NUMBER() OVER (ORDER BY customer_id ASC) AS idx,
+            customer_id + ';' + 
+            CASE 
+                WHEN :rebal_day_yn = 'N' THEN 'N'
+                ELSE 
+                    CASE 
+                        WHEN :rebal_day_yn = 'Y' AND order_status IN ('Y', 'Y1', 'Y3') THEN 'Y'
+                        ELSE 'N'
+                    END
+            END + ';' + 
+            :next_rebal_date + ';' AS lst
+        FROM TBL_FOSS_CUSTOMERACCOUNT
+        WHERE trddate = :target_date
+            AND investgb = :investgb
+    """
+    return pd.read_sql(
+        text(query),
+        connection,
+        params={
+            "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+            "send_filename": sSetFile,
+            "rebal_day_yn": rebal_day_yn,
+            "next_rebal_date": next_rebal_date,
+            "target_date": target_date,
+            "investgb": investgb,
+        },
+    )
+
+
+def update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile):
+    for customer_id in manual_customer_ids:
+        # 업데이트할 lst 값 생성
+        updated_lst_value = f"{customer_id};{manual_rebal_yn};{target_date};"
+
+        # 데이터프레임 내 업데이트
+        final_rebalcus_data.loc[
+            final_rebalcus_data["lst"].str.startswith(f"{customer_id};"),
+            "lst",
+        ] = updated_lst_value
+
+        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
+        update_query = """
+        UPDATE TBL_FOSS_BCPDATA
+        SET lst = :updated_lst
+        WHERE send_filename = :send_filename
+            AND indate = :indate
+            AND lst LIKE :customer_id_prefix
+        """
+        connection.execute(
+            text(update_query),
+            {
+                "updated_lst": updated_lst_value,
+                "send_filename": sSetFile,
+                "indate": final_rebalcus_data["indate"].iloc[0],
+                "customer_id_prefix": f"{customer_id}%;",
+            },
+        )
+    print(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
+
+
+def prepare_final_rebalcus_df(dataframes):
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    combined_df["idx"] = range(1, len(combined_df) + 1)
+
+    return combined_df.sort_values(by="idx").reset_index(drop=True)
 
 
 def prepare_final_df(merged, sSetFile):
