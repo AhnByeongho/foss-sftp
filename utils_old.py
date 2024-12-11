@@ -1,11 +1,10 @@
 import pandas as pd
 import numpy as np
-import holidays
 import os
 import csv
 from sqlalchemy import create_engine, text
 from io import StringIO
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 def get_sqlalchemy_connection(db_config):
@@ -17,6 +16,53 @@ def get_sqlalchemy_connection(db_config):
         f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
     )
     return create_engine(connection_url)
+
+
+# def log_batch_record(connection, log_type, batch_spid, running_key, return_result=None, return_msg=None):
+#     """
+#     Logs batch process start ('S') or end ('E') in the database, mimicking SP_BATCH_LOG_RECORD.
+
+#     :param connection: Database connection object
+#     :param log_type: 'S' for start, 'E' for end
+#     :param batch_spid: Batch process ID (integer)
+#     :param running_key: Unique running key (string)
+#     :param return_result: Result of the batch process ('success' or 'fail'), optional
+#     :param return_msg: Additional message describing the result, optional
+#     """
+#     try:
+#         if not batch_spid or not running_key.strip():
+#             # Skip logging if batch_spid or running_key is invalid
+#             return
+
+#         cursor = connection.cursor()
+
+#         if log_type == 'S':
+#             # Insert start log
+#             query = """
+#                 INSERT INTO TBL_BATCH_PROCESSING_LOG (batchspid, runningkey, starttime)
+#                 VALUES (?, ?, GETDATE())
+#             """
+#             cursor.execute(query, batch_spid, running_key)
+#         elif log_type == 'E':
+#             # Update end log
+#             query = """
+#                 UPDATE TBL_BATCH_PROCESSING_LOG
+#                 SET endtime = GETDATE(),
+#                     returnresult = ?,
+#                     returnmsg = ?
+#                 WHERE batchspid = ?
+#                     AND runningkey = ?
+#             """
+#             cursor.execute(query, return_result, return_msg, batch_spid, running_key)
+#         else:
+#             raise ValueError("Invalid log_type. Use 'S' for start or 'E' for end.")
+
+#         connection.commit()
+#         print(f"Batch log recorded successfully for log_type={log_type}, batch_spid={batch_spid}, running_key={running_key}.")
+#     except Exception as e:
+#         print(f"An error occurred while logging batch record: {e}")
+#         connection.rollback()
+#         raise
 
 
 def delete_old_bcp_data(engine):
@@ -277,9 +323,23 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
         with engine.connect() as connection:
             with connection.begin():
                 # 최근 영업일 계산
-                sFndDate = get_recent_business_date(target_date)
+                query = """
+                SELECT TOP 1 trddate
+                FROM (
+                    SELECT trddate, holiday_yn, 
+                            ROW_NUMBER() OVER (PARTITION BY holiday_yn ORDER BY trddate DESC) AS holiday_num
+                    FROM TBL_HOLIDAY
+                    WHERE trddate <= :target_date
+                ) AS S1
+                WHERE S1.holiday_yn = 'N' AND S1.holiday_num = 2
+                """
+                result = connection.execute(
+                    text(query), {"target_date": target_date}
+                ).scalar()
 
-                if not sFndDate:
+                if result:
+                    sFndDate = result
+                else:
                     raise ValueError("No valid fund base date found.")
 
                 # 생성해야 되는 데이터 확인
@@ -314,21 +374,272 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
                     )
                     return  # 프로세스 중단
 
-                # TMP_PERFORMANCE 데이터프레임 생성
-                TMP_PERFORMANCE = get_tmp_performance(engine, "foss", sFndDate)
+                # TMP_RISKGRADE 데이터프레임 생성
+                tmp_riskgrade_query = """
+                SELECT 
+                    auth_id, 
+                    port_cd, 
+                    RIGHT(port_cd, 1) AS risk_grade,
+                    prd_gb
+                FROM TBL_RESULT_MPLIST
+                WHERE auth_id = :auth_id
+                GROUP BY auth_id, port_cd, prd_gb
+                """
+                TMP_RISKGRADE = pd.read_sql(
+                    text(tmp_riskgrade_query),
+                    engine.connect(),
+                    params={"auth_id": "foss"},
+                )
 
-                terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
-                merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
-                merged = add_expected_return_and_volatility(merged)
-                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(drop=True)
-                merged = create_return_lst_column(merged, sFndDate)
+                # TMP_RETURN 데이터프레임 생성
+                terms = [
+                    ("1d", sFndDate, sFndDate),
+                    (
+                        "1m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=1)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "3m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=3)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "6m",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(months=6)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    (
+                        "1y",
+                        (
+                            pd.to_datetime(sFndDate)
+                            - pd.DateOffset(years=1)
+                            + pd.DateOffset(days=1)
+                        ).strftime("%Y%m%d"),
+                        sFndDate,
+                    ),
+                    ("all", "20181203", sFndDate),
+                ]
+                valid_terms = [
+                    (term, start, end)
+                    for term, start, end in terms
+                    if pd.to_datetime(start, format="%Y%m%d", errors="coerce")
+                    >= pd.to_datetime("20181204", format="%Y%m%d")
+                    or term == "all"
+                ]
+                term_df = pd.DataFrame(
+                    valid_terms, columns=["term", "start_dt", "end_dt"]
+                )
+
+                result_return_query = """
+                SELECT auth_id, port_cd, trddate, rtn_1d
+                FROM TBL_RESULT_RETURN
+                """
+                TBL_RESULT_RETURN = pd.read_sql(
+                    text(result_return_query), engine.connect()
+                )
+
+                all_returns = []
+
+                # term_df를 사용해 TBL_RESULT_RETURN을 필터링하고 term, start_dt, end_dt 추가
+                for _, term_row in term_df.iterrows():
+                    start_dt = term_row["start_dt"]
+                    end_dt = term_row["end_dt"]
+                    term = term_row["term"]
+
+                    # 기간 조건에 맞는 데이터를 필터링
+                    filtered_return = TBL_RESULT_RETURN[
+                        (TBL_RESULT_RETURN["trddate"] >= start_dt)
+                        & (TBL_RESULT_RETURN["trddate"] <= end_dt)
+                    ].copy()
+                    filtered_return["term"] = term
+                    filtered_return["start_dt"] = start_dt
+                    filtered_return["end_dt"] = end_dt
+
+                    all_returns.append(filtered_return)
+
+                # S3: 모든 필터링된 데이터를 병합
+                S3 = pd.concat(all_returns, ignore_index=True)
+
+                # TMP_RISKGRADE와 S3를 LEFT OUTER JOIN
+                TMP_RETURN = pd.merge(
+                    TMP_RISKGRADE,  # S1
+                    S3,  # S3
+                    on=["auth_id", "port_cd"],  # JOIN 조건
+                    how="left",  # LEFT OUTER JOIN
+                    suffixes=("", "_extra"),
+                )
+
+                # 로그 수익률 계산
+                TMP_RETURN["log_rt"] = np.log(TMP_RETURN["rtn_1d"] + 1)
+
+                TMP_RETURN = TMP_RETURN[
+                    [
+                        "auth_id",
+                        "port_cd",
+                        "risk_grade",
+                        "prd_gb",
+                        "term",
+                        "start_dt",
+                        "end_dt",
+                        "trddate",
+                        "rtn_1d",
+                        "log_rt",
+                    ]
+                ]
+
+                # TMP_PERFORMANCE 데이터프레임 생성
+                TMP_PERFORMANCE = TMP_RETURN.groupby(
+                    ["auth_id", "term", "risk_grade", "prd_gb"], as_index=False
+                ).agg(total_log_rt=("log_rt", "sum"))
+
+                # total_rt 계산: EXP(SUM(log_rt)) * 100 - 100
+                TMP_PERFORMANCE["total_rt"] = (
+                    (np.exp(TMP_PERFORMANCE["total_log_rt"]) * 100) - 100
+                ).round(2)
+
+                TMP_PERFORMANCE = TMP_PERFORMANCE[
+                    ["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]
+                ]
+
+                # TMP_PERFORMANCE에서 term별 데이터 분리
+                tmp_1m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1m"].copy()
+                tmp_3m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "3m"].copy()
+                tmp_6m = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "6m"].copy()
+                tmp_1y = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1y"].copy()
+                tmp_all = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "all"].copy()
+                tmp_1d = TMP_PERFORMANCE[TMP_PERFORMANCE["term"] == "1d"].copy()
+
+                # LEFT JOIN 수행
+                merged = tmp_1d.merge(
+                    tmp_1m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_1m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_3m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_3m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_6m,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_6m"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_1y,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_1y"),
+                    how="left",
+                )
+                merged = merged.merge(
+                    tmp_all,
+                    on=["risk_grade", "prd_gb"],
+                    suffixes=("", "_all"),
+                    how="left",
+                )
+
+                # 열 계산
+                def map_expected_return(row):
+                    if row["risk_grade"] == "1":
+                        return "9.10" if row["prd_gb"] == "f12" else "9.04"
+                    elif row["risk_grade"] == "2":
+                        return "12.40" if row["prd_gb"] == "f12" else "12.53"
+                    elif row["risk_grade"] == "3":
+                        return "16.02" if row["prd_gb"] == "f12" else "16.64"
+                    elif row["risk_grade"] == "4":
+                        return "19.14" if row["prd_gb"] == "f12" else "19.80"
+                    elif row["risk_grade"] == "5":
+                        return "21.15" if row["prd_gb"] == "f12" else "22.99"
+                    return ""
+
+                def map_volatility(row):
+                    if row["risk_grade"] == "1":
+                        return "3.20" if row["prd_gb"] == "f12" else "3.10"
+                    elif row["risk_grade"] == "2":
+                        return "4.46" if row["prd_gb"] == "f12" else "4.57"
+                    elif row["risk_grade"] == "3":
+                        return "6.68" if row["prd_gb"] == "f12" else "6.87"
+                    elif row["risk_grade"] == "4":
+                        return "8.60" if row["prd_gb"] == "f12" else "9.21"
+                    elif row["risk_grade"] == "5":
+                        return "10.90" if row["prd_gb"] == "f12" else "11.51"
+                    return ""
+
+                merged["expected_return"] = merged.apply(map_expected_return, axis=1)
+                merged["volatility"] = merged.apply(map_volatility, axis=1)
+
+                # 데이터 정렬
+                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(
+                    drop=True
+                )
+
+                # 데이터 정리 및 생성
+                merged["lst"] = (
+                    sFndDate
+                    + ";"
+                    + merged["risk_grade"]
+                    + ";"
+                    + merged["prd_gb"].map({"f12": "77", "f11": "61"})
+                    + ";"
+                    + merged["total_rt"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_3m"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_6m"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_1y"].fillna("").astype(str)
+                    + ";"
+                    + merged["total_rt_all"].fillna("").astype(str)
+                    + ";"
+                    + merged["expected_return"]
+                    + ";"
+                    + merged["volatility"]
+                    + ";"
+                    + merged["total_rt_1m"].fillna("").astype(str)
+                    + ";"
+                )
+
+                # idx 컬럼 생성 (정렬 이후)
                 merged["idx"] = merged.index + 1
 
-                # Final Dataframe
-                final_df = prepare_final_df(merged, sSetFile)
+                # 필요한 열 추출
+                final_df = merged[["idx", "lst"]].copy()
+                final_df["indate"] = datetime.now().strftime("%Y%m%d%H%M%S")
+                final_df["send_filename"] = sSetFile
+                final_df = final_df[["indate", "send_filename", "idx", "lst"]]
 
                 # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                insert_bcpdata(connection, final_df)
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_df.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row["indate"],
+                            "send_filename": row["send_filename"],
+                            "idx": row["idx"],
+                            "lst": row["lst"],
+                        },
+                    )
                 print(
                     "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
                 )
@@ -918,203 +1229,43 @@ def process_mp_info_eof(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def get_recent_business_date(target_date):
-    kr_holidays = holidays.KR()
-    target_date = datetime.strptime(target_date, "%Y%m%d")
+# def log_ftp_process(conn, batch_spid, running_key):
+#     try:
+#         cursor = conn.cursor()
 
-    # 오늘이 영업일인지 확인
-    is_today_business_day = target_date.weekday() < 5 and target_date not in kr_holidays
+#         # FTPResult 테이블 데이터가 있는지 확인
+#         cursor.execute("SELECT COUNT(*) FROM #FTPResult")
+#         ftp_result_count = cursor.fetchone()[0]
 
-    # 오늘이 영업일이면 오늘을 제외하고 1영업일 전을 찾기
-    if is_today_business_day:
-        recent_business_date = target_date - timedelta(days=1)
-        while recent_business_date.weekday() >= 5 or recent_business_date in kr_holidays:
-            recent_business_date -= timedelta(days=1)
-        return recent_business_date.strftime("%Y%m%d")
+#         if ftp_result_count > 0:
+#             # 현재 시각을 VARCHAR 형식으로 변환
+#             dt_now = datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]
 
-    # 오늘이 공휴일이면 2영업일 전을 찾기
-    else:
-        recent_business_date = target_date - timedelta(days=1)
-        count = 0
-        while count < 2:
-            if recent_business_date.weekday() < 5 and recent_business_date not in kr_holidays:
-                count += 1
-            if count < 2:
-                recent_business_date -= timedelta(days=1)
-    recent_business_date = recent_business_date.strftime("%Y%m%d")
+#             # TBL_EVENT_LOG에 데이터 삽입
+#             cursor.execute("""
+#             INSERT INTO TBL_EVENT_LOG (eventdate, eventtype, call_pgm_name, message, result)
+#             SELECT
+#                 ?, -- eventdate
+#                 d_code,
+#                 'Python: log_ftp_process',
+#                 CONCAT(rst, '      ', send_filename),
+#                 CASE WHEN CHARINDEX('success', rst) = 0 THEN 'false' ELSE 'true' END
+#             FROM #FTPResult
+#             """, dt_now)
+#             print("FTP processing results logged into TBL_EVENT_LOG successfully.")
 
-    return recent_business_date
+#         # 배치 로그 성공 처리
+#         cursor.execute("""
+#         EXEC SP_BATCH_LOG_RECORD 'E', ?, ?, '', 'success', '데이터 처리 성공'
+#         """, (batch_spid, running_key))
+#         conn.commit()
 
+#     except Exception as e:
+#         print("LOG SAVE Error:", e)
+#         conn.rollback()
 
-def get_tmp_riskgrade(engine, auth_id):
-    query = """
-    SELECT 
-        auth_id, 
-        port_cd, 
-        RIGHT(port_cd, 1) AS risk_grade,
-        prd_gb
-    FROM TBL_RESULT_MPLIST
-    WHERE auth_id = :auth_id
-    GROUP BY auth_id, port_cd, prd_gb
-    """
-    return pd.read_sql(text(query), engine.connect(), params={"auth_id": auth_id})
-
-
-def get_tmp_return(engine, sFndDate):
-    terms = [
-        ("1d", sFndDate, sFndDate),
-        ("1m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("3m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=3) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("6m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=6) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("1y", (pd.to_datetime(sFndDate) - pd.DateOffset(years=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("all", "20181203", sFndDate),
-    ]
-
-    valid_terms = [
-        (term, start, end)
-        for term, start, end in terms
-        if pd.to_datetime(start, format="%Y%m%d", errors="coerce") >= pd.to_datetime("20181204", format="%Y%m%d") or term == "all"
-    ]
-
-    term_df = pd.DataFrame(valid_terms, columns=["term", "start_dt", "end_dt"])
-
-    query = """
-    SELECT auth_id, port_cd, trddate, rtn_1d
-    FROM TBL_RESULT_RETURN
-    """
-    result_return = pd.read_sql(text(query), engine.connect())
-
-    all_returns = []
-    for _, row in term_df.iterrows():
-        filtered = result_return[
-            (result_return["trddate"] >= row["start_dt"]) &
-            (result_return["trddate"] <= row["end_dt"])
-        ].copy()
-        filtered["term"] = row["term"]
-        filtered["start_dt"] = row["start_dt"]
-        filtered["end_dt"] = row["end_dt"]
-        all_returns.append(filtered)
-
-    return pd.concat(all_returns, ignore_index=True)
-
-
-def calculate_performance(tmp_riskgrade, tmp_return):
-    tmp_merged = pd.merge(
-        tmp_riskgrade,
-        tmp_return,
-        on=["auth_id", "port_cd"],
-        how="left",
-        suffixes=("", "_extra"),
-    )
-
-    tmp_return = tmp_merged[
-        [
-            "auth_id",
-            "port_cd",
-            "risk_grade",
-            "prd_gb",
-            "term",
-            "start_dt",
-            "end_dt",
-            "trddate",
-            "rtn_1d",
-        ]
-    ]
-
-    tmp_performance = tmp_return.groupby(["auth_id", "term", "risk_grade", "prd_gb"], as_index=False).agg(
-        total_rt=("rtn_1d", lambda x: (x + 1).prod() * 100 - 100)
-    )
-    tmp_performance["total_rt"] = tmp_performance["total_rt"].round(2)
-
-    return tmp_performance[["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]]
-
-
-def get_tmp_performance(engine, auth_id, sFndDate):
-    tmp_riskgrade = get_tmp_riskgrade(engine, auth_id)
-    tmp_return = get_tmp_return(engine, sFndDate)
-    tmp_performance = calculate_performance(tmp_riskgrade, tmp_return)
-    return tmp_performance
-
-
-def merge_terms(tmp_performance, terms):
-    merged = tmp_performance[tmp_performance["term"] == "1d"].copy()
-    for term in terms:
-        term_df = tmp_performance[tmp_performance["term"] == term].copy()
-        merged = merged.merge(
-            term_df,
-            on=["risk_grade", "prd_gb"],
-            suffixes=("", f"_{term}"),
-            how="left",
-        )
-    return merged
-
-
-expected_return_map = {
-    "1": {"f12": "9.10", "f11": "9.04"},
-    "2": {"f12": "12.40", "f11": "12.53"},
-    "3": {"f12": "16.02", "f11": "16.64"},
-    "4": {"f12": "19.14", "f11": "19.80"},
-    "5": {"f12": "21.15", "f11": "22.99"},
-}
-
-volatility_map = {
-    "1": {"f12": "3.20", "f11": "3.10"},
-    "2": {"f12": "4.46", "f11": "4.57"},
-    "3": {"f12": "6.68", "f11": "6.87"},
-    "4": {"f12": "8.60", "f11": "9.21"},
-    "5": {"f12": "10.90", "f11": "11.51"},
-}
-
-def add_expected_return_and_volatility(df):
-    df["expected_return"] = df.apply(lambda row: expected_return_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
-    df["volatility"] = df.apply(lambda row: volatility_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
-    return df
-
-
-def create_return_lst_column(df, sFndDate):
-    df["lst"] = df.apply(
-        lambda row: (
-            f"{sFndDate};"
-            f"{row['risk_grade']};"
-            f"{ {'f12': '77', 'f11': '61'}.get(row['prd_gb'], '') };"
-            f"{row['total_rt']};"
-            f"{row['total_rt_3m']};"
-            f"{row['total_rt_6m']};"
-            f"{row['total_rt_1y']};"
-            f"{row['total_rt_all']};"
-            f"{row['expected_return']};"
-            f"{row['volatility']};"
-            f"{row['total_rt_1m']};"
-        ),
-        axis=1
-    )
-    return df
-
-
-def prepare_final_df(merged, sSetFile):
-    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-    
-    final_df = merged[["idx", "lst"]].copy()
-    final_df = final_df.assign(
-        indate=current_time,
-        send_filename=sSetFile
-    )[["indate", "send_filename", "idx", "lst"]]
-    
-    return final_df
-
-
-def insert_bcpdata(connection, final_df):
-    insert_query = """
-    INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-    VALUES (:indate, :send_filename, :idx, :lst)
-    """
-    for _, row in final_df.iterrows():
-        connection.execute(
-            text(insert_query),
-            {
-                "indate": row["indate"],
-                "send_filename": row["send_filename"],
-                "idx": row["idx"],
-                "lst": row["lst"],
-            },
-        )
+#         # 배치 로그 실패 처리
+#         cursor.execute("""
+#         EXEC SP_BATCH_LOG_RECORD 'E', ?, ?, '', 'fail', 'LOG SAVE Error'
+#         """, (batch_spid, running_key))
+#         conn.commit()

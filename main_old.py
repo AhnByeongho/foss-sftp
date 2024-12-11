@@ -1,7 +1,8 @@
 import paramiko
 
-from utils import (
+from utils_old import (
     get_sqlalchemy_connection,
+    # log_batch_record,
     delete_old_bcp_data,
     insert_fnd_list_data,
     insert_customer_account_data,
@@ -11,6 +12,7 @@ from utils import (
     process_rebalcus,
     process_report,
     process_mp_info_eof,
+    # log_ftp_process,
 )
 
 # sftp 연결 정보
@@ -85,6 +87,8 @@ try:
     # process_type = "SEND_MP_INFO_EOF"
     ##########################################################################################
 
+    # # ------------------------ 배치 시작 로그 기록 -------------------------- #
+    # log_batch_record(conn, 'S', batch_spid, running_key)
     try:
         files_to_read = [
             filename for filename in sftp.listdir() if target_date in filename
@@ -160,8 +164,16 @@ try:
         else:
             print(f"Invalid process_type: {process_type}. No process executed.")
 
+        # # ---------------------------- FTP 처리 LOG INSERT ---------------------------- #
+        # log_ftp_process(conn, batch_spid, running_key)
+
+        # # ------------------------- 배치 종료 로그 기록 (성공) ------------------------- #
+        # log_batch_record(conn, 'E', batch_spid, running_key, return_result="success", return_msg="데이터 처리 성공")
+
     except Exception as e:
-        print(f"An error occurred: {e}")
+        # # ------------------------- 배치 종료 로그 기록 (실패) ------------------------- #
+        # log_batch_record(conn, 'E', batch_spid, running_key, return_result="fail", return_msg="LOG SAVE Error")
+        print(f"LOG SAVE Error{e}")
         raise
 
     # 연결 종료
