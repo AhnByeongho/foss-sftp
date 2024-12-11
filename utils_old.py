@@ -766,53 +766,53 @@ def process_mp_list(engine, target_date, sftp_client):
                 final_df = final_df[["indate", "send_filename", "idx", "lst"]]
                 final_df = final_df.sort_values(by="idx").reset_index(drop=True)
 
-        #         # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-        #         # 데이터 삽입
-        #         insert_query = """
-        #         INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-        #         VALUES (:indate, :send_filename, :idx, :lst)
-        #         """
-        #         for _, row in final_df.iterrows():
-        #             connection.execute(
-        #                 text(insert_query),
-        #                 {
-        #                     "indate": row["indate"],
-        #                     "send_filename": row["send_filename"],
-        #                     "idx": row["idx"],
-        #                     "lst": row["lst"],
-        #                 },
-        #             )
-        #         print(
-        #             "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
-        #         )
+                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+                # 데이터 삽입
+                insert_query = """
+                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                VALUES (:indate, :send_filename, :idx, :lst)
+                """
+                for _, row in final_df.iterrows():
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "indate": row["indate"],
+                            "send_filename": row["send_filename"],
+                            "idx": row["idx"],
+                            "lst": row["lst"],
+                        },
+                    )
+                print(
+                    "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                )
 
-        #         # CSV 파일 저장
-        #         local_file_path = (
-        #             f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-        #         )
-        #         final_df[["lst"]].to_csv(
-        #             local_file_path, index=False, header=False, encoding="utf-8"
-        #         )
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                final_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
+                )
 
-        # # SFTP 경로 및 파일 설정
-        # remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
-        # local_path = local_file_path  # 로컬에서 저장한 파일 경로
+        # SFTP 경로 및 파일 설정
+        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        local_path = local_file_path  # 로컬에서 저장한 파일 경로
 
-        # # SFTP 업로드
-        # sftp_client.put(local_path, remote_path)
-        # print(f"File successfully uploaded to SFTP server: {remote_path}")
+        # SFTP 업로드
+        sftp_client.put(local_path, remote_path)
+        print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
         raise
 
-    # finally:
-    #     # 임시 CSV 파일 삭제
-    #     try:
-    #         if os.path.exists(local_file_path):
-    #             os.remove(local_file_path)
-    #     except Exception as e:
-    #         print(f"Error occurred while deleting the temporary CSV file: {e}")
+    finally:
+        # 임시 CSV 파일 삭제
+        try:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+        except Exception as e:
+            print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_rebalcus(
@@ -984,91 +984,91 @@ def process_rebalcus(
                     by="idx"
                 ).reset_index(drop=True)
 
-                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                # 데이터 삽입
-                insert_query = """
-                INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                VALUES (:indate, :send_filename, :idx, :lst)
-                """
-                for _, row in final_rebalcus_data.iterrows():
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "indate": row["indate"],
-                            "send_filename": row["send_filename"],
-                            "idx": row["idx"],
-                            "lst": row["lst"],
-                        },
-                    )
-                print(
-                    "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
-                )
+        #         # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+        #         # 데이터 삽입
+        #         insert_query = """
+        #         INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+        #         VALUES (:indate, :send_filename, :idx, :lst)
+        #         """
+        #         for _, row in final_rebalcus_data.iterrows():
+        #             connection.execute(
+        #                 text(insert_query),
+        #                 {
+        #                     "indate": row["indate"],
+        #                     "send_filename": row["send_filename"],
+        #                     "idx": row["idx"],
+        #                     "lst": row["lst"],
+        #                 },
+        #             )
+        #         print(
+        #             "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
+        #         )
 
-                # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-                if manual_customer_ids is not None and manual_rebal_yn is not None:
-                    # 수동 리밸런싱 신호 전송 작업 수행
-                    for customer_id in manual_customer_ids:
-                        # 업데이트할 lst 값 생성
-                        updated_lst_value = (
-                            f"{customer_id};{manual_rebal_yn};{target_date};"
-                        )
+        #         # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
+        #         if manual_customer_ids is not None and manual_rebal_yn is not None:
+        #             # 수동 리밸런싱 신호 전송 작업 수행
+        #             for customer_id in manual_customer_ids:
+        #                 # 업데이트할 lst 값 생성
+        #                 updated_lst_value = (
+        #                     f"{customer_id};{manual_rebal_yn};{target_date};"
+        #                 )
 
-                        # 데이터프레임 내 업데이트
-                        final_rebalcus_data.loc[
-                            final_rebalcus_data["lst"].str.startswith(
-                                f"{customer_id};"
-                            ),
-                            "lst",
-                        ] = updated_lst_value
+        #                 # 데이터프레임 내 업데이트
+        #                 final_rebalcus_data.loc[
+        #                     final_rebalcus_data["lst"].str.startswith(
+        #                         f"{customer_id};"
+        #                     ),
+        #                     "lst",
+        #                 ] = updated_lst_value
 
-                        # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
-                        update_query = """
-                        UPDATE TBL_FOSS_BCPDATA
-                        SET lst = :updated_lst
-                        WHERE send_filename = :send_filename
-                            AND indate = :indate
-                            AND lst LIKE :customer_id_prefix
-                        """
-                        connection.execute(
-                            text(update_query),
-                            {
-                                "updated_lst": updated_lst_value,
-                                "send_filename": sSetFile,
-                                "indate": final_rebalcus_data["indate"].iloc[0],
-                                "customer_id_prefix": f"{customer_id}%;",
-                            },
-                        )
-                    print(
-                        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
-                    )
+        #                 # TBL_FOSS_BCPDATA 테이블에 업데이트 실행
+        #                 update_query = """
+        #                 UPDATE TBL_FOSS_BCPDATA
+        #                 SET lst = :updated_lst
+        #                 WHERE send_filename = :send_filename
+        #                     AND indate = :indate
+        #                     AND lst LIKE :customer_id_prefix
+        #                 """
+        #                 connection.execute(
+        #                     text(update_query),
+        #                     {
+        #                         "updated_lst": updated_lst_value,
+        #                         "send_filename": sSetFile,
+        #                         "indate": final_rebalcus_data["indate"].iloc[0],
+        #                         "customer_id_prefix": f"{customer_id}%;",
+        #                     },
+        #                 )
+        #             print(
+        #                 f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
+        #             )
 
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_rebalcus_data[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
+        #         # CSV 파일 저장
+        #         local_file_path = (
+        #             f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+        #         )
+        #         final_rebalcus_data[["lst"]].to_csv(
+        #             local_file_path, index=False, header=False, encoding="utf-8"
+        #         )
 
-        # SFTP 경로 및 파일 설정
-        remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
-        local_path = local_file_path  # 로컬에서 저장한 파일 경로
+        # # SFTP 경로 및 파일 설정
+        # remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
+        # local_path = local_file_path  # 로컬에서 저장한 파일 경로
 
-        # SFTP 업로드
-        sftp_client.put(local_path, remote_path)
-        print(f"File successfully uploaded to SFTP server: {remote_path}")
+        # # SFTP 업로드
+        # sftp_client.put(local_path, remote_path)
+        # print(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
         raise
 
-    finally:
-        # 임시 CSV 파일 삭제
-        try:
-            if os.path.exists(local_file_path):
-                os.remove(local_file_path)
-        except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+    # finally:
+    #     # 임시 CSV 파일 삭제
+    #     try:
+    #         if os.path.exists(local_file_path):
+    #             os.remove(local_file_path)
+    #     except Exception as e:
+    #         print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_report(engine, target_date, sftp_client):
