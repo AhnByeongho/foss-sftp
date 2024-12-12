@@ -15,6 +15,7 @@ script_file="main.py"
 
 # process_type 리스트 정의
 process_types=(
+    "DELETE_OLDDATA"
     "RECEIVE_UNIVERSE"
     "RECEIVE_ACCOUNT"
     "RECEIVE_CUSTMERFND"

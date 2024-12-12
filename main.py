@@ -123,11 +123,12 @@ def main():
             ap_acc_info = file_contents.get("ap_acc_info")  # TBL_FOSS_CUSTOMERACCOUNT
             ap_fnd_info = file_contents.get("ap_fnd_info")  # TBL_FOSS_CUSTOMERFUND
 
-            # 1개월 전 데이터 삭제 (TBL_FOSS_BCPDATA)
-            delete_old_bcp_data(engine)
+            # ------------------ 1개월 전 데이터 삭제 (TBL_FOSS_BCPDATA) ------------------ #
+            if process_type == "DELETE_OLDDATA":
+                delete_old_bcp_data(engine)
 
             # ------------------------------ 유니버스 수신 ------------------------------- #
-            if process_type == "RECEIVE_UNIVERSE":  # TBL_FOSS_UNIVERSE
+            elif process_type == "RECEIVE_UNIVERSE":  # TBL_FOSS_UNIVERSE
                 if fnd_list:
                     insert_fnd_list_data(engine, fnd_list, target_date)
                 else:
