@@ -100,7 +100,7 @@ def main():
         sftp, transport = get_sftp_connection(process_type)
 
         # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
-        engine = get_sqlalchemy_connection(local_db_config)
+        engine = get_sqlalchemy_connection(dev_db_config)
 
         # foss_data directory 접근
         sftp.chdir("foss_data")
@@ -148,15 +148,15 @@ def main():
                     print(f"No data ap_fnd_info found for {target_date}.")
 
             # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
-            elif process_type == "SEND_MPRATE":
+            elif process_type == "SEND_MPRATE":     # mp_info
                 process_yesterday_return_data(engine, target_date, sftp)
 
             # ----------------------------- MP 리스트 송신 처리 ---------------------------- #
-            elif process_type == "SEND_MPLIST":
+            elif process_type == "SEND_MPLIST":     # mp_fnd_info
                 process_mp_list(engine, target_date, sftp)
 
             # --------------------------- 리밸런싱 고객자료 송신 처리 ------------------------- #
-            elif process_type == "SEND_REBALCUS":
+            elif process_type == "SEND_REBALCUS":   # ap_reval_yn
                 # 리밸런싱 송신 처리
                 process_rebalcus(engine, target_date, sftp)
 
@@ -170,11 +170,11 @@ def main():
                 # process_rebalcus(engine, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
 
             # ------------------------------ 리포트 송신 처리 ------------------------------- #
-            elif process_type == "SEND_REPORT":
+            elif process_type == "SEND_REPORT":     # report
                 process_report(engine, target_date, sftp)
 
             # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
-            elif process_type == "SEND_MP_INFO_EOF":
+            elif process_type == "SEND_MP_INFO_EOF":    # mp_info_eof
                 process_mp_info_eof(target_date, sftp)
 
             # 잘못된 process_type이 입력되었을 경우

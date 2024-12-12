@@ -43,4 +43,4 @@ for process_type in "${process_types[@]}"; do
 done
 
 # 전체 프로세스 완료 로그 기록
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] All processes completed successfully." >> "$log_file"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] All processes completed." >> "$log_file"
