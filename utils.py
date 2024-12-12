@@ -613,6 +613,11 @@ def process_report(engine, target_date, sftp_client):
                     )
 
                 else:
+                    local_file_path = (
+                        f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                    )
+                    with open(local_file_path, "w", encoding="utf-8") as file:
+                        file.write("")  # 빈 파일 생성
                     print(f"No report data found for {target_date}.")
 
         # SFTP 경로 및 파일 설정
