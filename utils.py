@@ -2,20 +2,9 @@ import pandas as pd
 import holidays
 import os
 import csv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from io import StringIO
 from datetime import datetime, timedelta
-
-
-def get_sqlalchemy_connection(db_config):
-    """
-    Returns a SQLAlchemy engine for SQL Server connection.
-    """
-    connection_url = (
-        f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
-        f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
-    )
-    return create_engine(connection_url)
 
 
 def delete_old_bcp_data(engine):

@@ -1,8 +1,8 @@
 import argparse
 import paramiko
+from sqlalchemy import create_engine
 
 from utils import (
-    get_sqlalchemy_connection,
     delete_old_bcp_data,
     insert_fnd_list_data,
     insert_customer_account_data,
@@ -13,6 +13,7 @@ from utils import (
     process_report,
     process_mp_info_eof,
 )
+
 
 # sftp 연결 정보
 fossDev_sftp_config = {
@@ -31,33 +32,33 @@ foss_sftp_config = {
 
 
 # MSSQL 연결 정보
-db_config = {
+local_db_config = {
     "server": "localhost",
     "database": "QBIS_RAB_LOCAL",
     "username": "SA",
     "password": "3170118A!",
 }
 
-# db_config = {
-#     "server": "192.168.5.239",
-#     "database": "QBIS_RAB_TEST",
-#     "username": "qbrabtest",
-#     "password": "znjxjqorrabtest11!!",
-# }
+test_db_config = {
+    "server": "192.168.5.239",
+    "database": "QBIS_RAB_TEST",
+    "username": "qbrabtest",
+    "password": "znjxjqorrabtest11!!",
+}
 
-# db_config = {
-#     "server": "192.168.5.239",
-#     "database": "QBIS_RAB_DEV",
-#     "username": "qbrabdev",
-#     "password": "znjxjqorrabdev11!!",
-# }
+dev_db_config = {
+    "server": "192.168.5.239",
+    "database": "QBIS_RAB_DEV",
+    "username": "qbrabdev",
+    "password": "znjxjqorrabdev11!!",
+}
 
-# db_config = {
-#     "server": "192.168.5.239",
-#     "database": "QBIS_RAB",
-#     "username": "qbrab",
-#     "password": "znjxjqorrab11!!",
-# }
+db_config = {
+    "server": "192.168.5.239",
+    "database": "QBIS_RAB",
+    "username": "qbrab",
+    "password": "znjxjqorrab11!!",
+}
 
 
 # TODO: 운영에 batch 돌릴 때는 수정해야함
@@ -71,6 +72,14 @@ def get_sftp_connection(process_type):
     transport.connect(username=config["user"], password=config["password"])
     sftp = paramiko.SFTPClient.from_transport(transport)
     return sftp, transport
+
+
+def get_sqlalchemy_connection(db_config):
+    connection_url = (
+        f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
+        f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
+    )
+    return create_engine(connection_url)
 
 
 def main():
@@ -90,8 +99,8 @@ def main():
         # SFTP 연결
         sftp, transport = get_sftp_connection(process_type)
 
-        # MSSQL 연결
-        engine = get_sqlalchemy_connection(db_config)
+        # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
+        engine = get_sqlalchemy_connection(local_db_config)
 
         # foss_data directory 접근
         sftp.chdir("foss_data")
