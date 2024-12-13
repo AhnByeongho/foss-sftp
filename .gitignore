@@ -3,3 +3,6 @@ env
 
 # Python bytecode
 __pycache__
+
+# batch logs
+logs
