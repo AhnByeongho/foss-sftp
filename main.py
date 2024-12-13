@@ -21,14 +21,14 @@ fossDev_sftp_config = {
     "host": "106.10.52.176",
     "port": 2020,
     "user": "fossDev",
-    "password": "qBi-nav-dev_2)0$"
+    "password": "qBi-nav-dev_2)0$",
 }
 
 foss_sftp_config = {
     "host": "106.10.52.176",
     "port": 2020,
     "user": "foss",
-    "password": "qBi-nav_2)0$"
+    "password": "qBi-nav_2)0$",
 }
 
 
@@ -105,7 +105,6 @@ def main():
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
-
             # foss_data directory 접근
             sftp.chdir("foss_data")
 
@@ -124,7 +123,9 @@ def main():
                         file_contents[key] = content
 
                 fnd_list = file_contents.get("fnd_list")  # TBL_FOSS_UNIVERSE
-                ap_acc_info = file_contents.get("ap_acc_info")  # TBL_FOSS_CUSTOMERACCOUNT
+                ap_acc_info = file_contents.get(
+                    "ap_acc_info"
+                )  # TBL_FOSS_CUSTOMERACCOUNT
                 ap_fnd_info = file_contents.get("ap_fnd_info")  # TBL_FOSS_CUSTOMERFUND
 
                 # ------------------ 1개월 전 데이터 삭제 (TBL_FOSS_BCPDATA) ------------------ #
@@ -141,7 +142,9 @@ def main():
                 # ---------------------------- 고객 계좌 정보 수신 ---------------------------- #
                 elif process_type == "RECEIVE_ACCOUNT":  # TBL_FOSS_CUSTOMERACCOUNT
                     if ap_acc_info:
-                        insert_customer_account_data(connection, ap_acc_info, target_date)
+                        insert_customer_account_data(
+                            connection, ap_acc_info, target_date
+                        )
                     else:
                         log_message(f"No data ap_acc_info found for {target_date}.")
 
@@ -153,15 +156,15 @@ def main():
                         log_message(f"No data ap_fnd_info found for {target_date}.")
 
                 # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
-                elif process_type == "SEND_MPRATE":     # mp_info
+                elif process_type == "SEND_MPRATE":  # mp_info
                     process_yesterday_return_data(connection, target_date, sftp)
 
                 # ----------------------------- MP 리스트 송신 처리 ---------------------------- #
-                elif process_type == "SEND_MPLIST":     # mp_fnd_info
+                elif process_type == "SEND_MPLIST":  # mp_fnd_info
                     process_mp_list(connection, target_date, sftp)
 
                 # --------------------------- 리밸런싱 고객자료 송신 처리 ------------------------- #
-                elif process_type == "SEND_REBALCUS":   # ap_reval_yn
+                elif process_type == "SEND_REBALCUS":  # ap_reval_yn
                     # 리밸런싱 송신 처리
                     process_rebalcus(connection, target_date, sftp)
 
@@ -175,16 +178,18 @@ def main():
                     # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
 
                 # ------------------------------ 리포트 송신 처리 ------------------------------- #
-                elif process_type == "SEND_REPORT":     # report
+                elif process_type == "SEND_REPORT":  # report
                     process_report(connection, target_date, sftp)
 
                 # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
-                elif process_type == "SEND_MP_INFO_EOF":    # mp_info_eof
+                elif process_type == "SEND_MP_INFO_EOF":  # mp_info_eof
                     process_mp_info_eof(target_date, sftp)
 
                 # 잘못된 process_type이 입력되었을 경우
                 else:
-                    log_message(f"Invalid process_type: {process_type}. No process executed.")
+                    log_message(
+                        f"Invalid process_type: {process_type}. No process executed."
+                    )
 
             except Exception as e:
                 log_message(f"An error occurred: {e}")

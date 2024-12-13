@@ -58,9 +58,21 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
             # Final Dataframe
             final_df = pd.DataFrame(
                 unique_rows,
-                columns=["fund_cd", "foss_fund_cd", "fund_nm", "fund_cd_s", "tradeyn", "class_gb", "risk_grade", "investgb", "co_cd", "co_nm", "total_cnt"]
+                columns=[
+                    "fund_cd",
+                    "foss_fund_cd",
+                    "fund_nm",
+                    "fund_cd_s",
+                    "tradeyn",
+                    "class_gb",
+                    "risk_grade",
+                    "investgb",
+                    "co_cd",
+                    "co_nm",
+                    "total_cnt",
+                ],
             )
-            for col in final_df.select_dtypes(include='object').columns:
+            for col in final_df.select_dtypes(include="object").columns:
                 final_df[col] = final_df[col].str.strip()
             final_df["trddate"] = target_date
             final_df["total_cnt"] = final_df["total_cnt"].astype(int)
@@ -71,7 +83,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
                 name="TBL_FOSS_UNIVERSE",
                 con=connection,
                 if_exists="append",
-                index=False
+                index=False,
             )
             log_message("Data(fnd_list) inserted successfully with duplicates removed.")
 
@@ -108,20 +120,29 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
             unique_rows = set()  # 중복 제거를 위한 집합
             for row in csv_reader:
                 if len(row) == 8:  # 데이터 유효성 검사
-                    unique_rows.add(
-                        tuple(row)
-                    )  # 리스트를 튜플로 변환 후 집합에 추가
-            
+                    unique_rows.add(tuple(row))  # 리스트를 튜플로 변환 후 집합에 추가
+
             # Final Dataframe
             final_df = pd.DataFrame(
                 unique_rows,
-                columns=["customer_id", "investgb", "risk_grade", "invest_principal", "totalappraisal_price", "revenue_price", "order_status", "deposit_price"]
+                columns=[
+                    "customer_id",
+                    "investgb",
+                    "risk_grade",
+                    "invest_principal",
+                    "totalappraisal_price",
+                    "revenue_price",
+                    "order_status",
+                    "deposit_price",
+                ],
             )
-            for col in final_df.select_dtypes(include='object').columns:
+            for col in final_df.select_dtypes(include="object").columns:
                 final_df[col] = final_df[col].str.strip()
             final_df["trddate"] = target_date
             final_df["invest_principal"] = final_df["invest_principal"].astype(int)
-            final_df["totalappraisal_price"] = final_df["totalappraisal_price"].astype(int)
+            final_df["totalappraisal_price"] = final_df["totalappraisal_price"].astype(
+                int
+            )
             final_df["revenue_price"] = final_df["revenue_price"].astype(int)
             final_df["deposit_price"] = final_df["deposit_price"].astype(int)
             final_df["regdate"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -131,9 +152,11 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
                 name="TBL_FOSS_CUSTOMERACCOUNT",
                 con=connection,
                 if_exists="append",
-                index=False
+                index=False,
             )
-            log_message("Data(ap_acc_info) inserted successfully with duplicates removed.")
+            log_message(
+                "Data(ap_acc_info) inserted successfully with duplicates removed."
+            )
 
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_acc_info): {e}")
@@ -168,16 +191,20 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
             unique_rows = set()  # 중복 제거를 위한 집합
             for row in csv_reader:
                 if len(row) == 5:  # 데이터 유효성 검사
-                    unique_rows.add(
-                        tuple(row)
-                    )  # 리스트를 튜플로 변환 후 집합에 추가
+                    unique_rows.add(tuple(row))  # 리스트를 튜플로 변환 후 집합에 추가
 
             # Final Dataframe
             final_df = pd.DataFrame(
                 unique_rows,
-                columns=["customer_id", "fund_cd", "invest_principal", "appraisal_price", "revenue_price"]
+                columns=[
+                    "customer_id",
+                    "fund_cd",
+                    "invest_principal",
+                    "appraisal_price",
+                    "revenue_price",
+                ],
             )
-            for col in final_df.select_dtypes(include='object').columns:
+            for col in final_df.select_dtypes(include="object").columns:
                 final_df[col] = final_df[col].str.strip()
             final_df["trddate"] = target_date
             final_df["invest_principal"] = final_df["invest_principal"].astype(int)
@@ -190,9 +217,11 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
                 name="TBL_FOSS_CUSTOMERFUND",
                 con=connection,
                 if_exists="append",
-                index=False
+                index=False,
             )
-            log_message("Data(ap_fnd_info) inserted successfully with duplicates removed.")
+            log_message(
+                "Data(ap_fnd_info) inserted successfully with duplicates removed."
+            )
 
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_fnd_info): {e}")
@@ -266,7 +295,9 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
             merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
             merged = add_expected_return_and_volatility(merged)
-            merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(drop=True)
+            merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(
+                drop=True
+            )
             merged = create_return_lst_column(merged, sFndDate)
             merged["idx"] = merged.index + 1
 
@@ -280,9 +311,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             )
 
             # CSV 파일 저장
-            local_file_path = (
-                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-            )
+            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
             final_df[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -344,9 +373,7 @@ def process_mp_list(connection, target_date, sftp_client):
             )
 
             # CSV 파일 저장
-            local_file_path = (
-                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-            )
+            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
             final_df[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -404,13 +431,19 @@ def process_rebalcus(
 
         with connection.begin():
             # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
-            sRebalDayYN = check_rebalancing(connection, target_date, "foss", "f12")     # 연금(f12) 리밸런싱 여부
-            sRebalDayYN2 = check_rebalancing(connection, target_date, "foss", "f11")     # 연금(f11) 리밸런싱 여부
+            sRebalDayYN = check_rebalancing(
+                connection, target_date, "foss", "f12"
+            )  # 연금(f12) 리밸런싱 여부
+            sRebalDayYN2 = check_rebalancing(
+                connection, target_date, "foss", "f11"
+            )  # 연금(f11) 리밸런싱 여부
 
             i_opent_day = 3  # 영업일
 
             # 연금(f12), 일반(f11) 다음 리밸런싱 날짜 계산
-            next_rebal_date = get_next_rebalancing_date(connection, target_date, i_opent_day)
+            next_rebal_date = get_next_rebalancing_date(
+                connection, target_date, i_opent_day
+            )
 
             # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
             current_date = datetime.now().strftime("%Y%m%d")
@@ -420,11 +453,17 @@ def process_rebalcus(
                     sRebalDayYN2 = "Y"
 
             # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
-            pension_data = fetch_rebalcus_data(connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile)   # 연금(f12) 데이터 조회
-            general_data = fetch_rebalcus_data(connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile)  # 일반(f11) 데이터 조회
+            pension_data = fetch_rebalcus_data(
+                connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile
+            )  # 연금(f12) 데이터 조회
+            general_data = fetch_rebalcus_data(
+                connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile
+            )  # 일반(f11) 데이터 조회
 
             # Final Dataframe
-            final_rebalcus_data = prepare_final_rebalcus_df([pension_data, general_data])
+            final_rebalcus_data = prepare_final_rebalcus_df(
+                [pension_data, general_data]
+            )
 
             # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
             insert_bcpdata(connection, final_rebalcus_data)
@@ -434,12 +473,17 @@ def process_rebalcus(
 
             # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
             if manual_customer_ids is not None and manual_rebal_yn is not None:
-                update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile)
+                update_manual_rebalancing(
+                    connection,
+                    final_rebalcus_data,
+                    manual_customer_ids,
+                    manual_rebal_yn,
+                    target_date,
+                    sSetFile,
+                )
 
             # CSV 파일 저장
-            local_file_path = (
-                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-            )
+            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
             final_rebalcus_data[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -557,7 +601,7 @@ def process_report(connection, target_date, sftp_client):
                 )
                 with open(local_file_path, "w", encoding="utf-8") as file:
                     file.write("")  # 빈 파일 생성
-                    
+
                 log_message(f"No report data found for {target_date}.")
 
         # SFTP 경로 및 파일 설정
@@ -607,7 +651,9 @@ def process_mp_info_eof(target_date, sftp_client):
 
         # SFTP 업로드
         sftp_client.put(local_file_path, remote_path)
-        log_message(f"Empty EOF file successfully uploaded to SFTP server: {remote_path}")
+        log_message(
+            f"Empty EOF file successfully uploaded to SFTP server: {remote_path}"
+        )
 
     except Exception as e:
         log_message(f"An error occurred: {e}")
@@ -632,7 +678,9 @@ def get_recent_business_date(target_date):
     # 오늘이 영업일이면 오늘을 제외하고 1영업일 전을 찾기
     if is_today_business_day:
         recent_business_date = target_date - timedelta(days=1)
-        while recent_business_date.weekday() >= 5 or recent_business_date in kr_holidays:
+        while (
+            recent_business_date.weekday() >= 5 or recent_business_date in kr_holidays
+        ):
             recent_business_date -= timedelta(days=1)
         return recent_business_date.strftime("%Y%m%d")
 
@@ -641,7 +689,10 @@ def get_recent_business_date(target_date):
         recent_business_date = target_date - timedelta(days=1)
         count = 0
         while count < 2:
-            if recent_business_date.weekday() < 5 and recent_business_date not in kr_holidays:
+            if (
+                recent_business_date.weekday() < 5
+                and recent_business_date not in kr_holidays
+            ):
                 count += 1
             if count < 2:
                 recent_business_date -= timedelta(days=1)
@@ -668,17 +719,51 @@ def get_tmp_riskgrade(connection, auth_id):
 def get_tmp_return(connection, sFndDate):
     terms = [
         ("1d", sFndDate, sFndDate),
-        ("1m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("3m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=3) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("6m", (pd.to_datetime(sFndDate) - pd.DateOffset(months=6) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
-        ("1y", (pd.to_datetime(sFndDate) - pd.DateOffset(years=1) + pd.DateOffset(days=1)).strftime("%Y%m%d"), sFndDate),
+        (
+            "1m",
+            (
+                pd.to_datetime(sFndDate)
+                - pd.DateOffset(months=1)
+                + pd.DateOffset(days=1)
+            ).strftime("%Y%m%d"),
+            sFndDate,
+        ),
+        (
+            "3m",
+            (
+                pd.to_datetime(sFndDate)
+                - pd.DateOffset(months=3)
+                + pd.DateOffset(days=1)
+            ).strftime("%Y%m%d"),
+            sFndDate,
+        ),
+        (
+            "6m",
+            (
+                pd.to_datetime(sFndDate)
+                - pd.DateOffset(months=6)
+                + pd.DateOffset(days=1)
+            ).strftime("%Y%m%d"),
+            sFndDate,
+        ),
+        (
+            "1y",
+            (
+                pd.to_datetime(sFndDate)
+                - pd.DateOffset(years=1)
+                + pd.DateOffset(days=1)
+            ).strftime("%Y%m%d"),
+            sFndDate,
+        ),
         ("all", "20181203", sFndDate),
     ]
 
     valid_terms = [
         (term, start, end)
         for term, start, end in terms
-        if pd.to_datetime(start, format="%Y%m%d", errors="coerce") >= pd.to_datetime("20181204", format="%Y%m%d") or term == "all"
+        if pd.to_datetime(start, format="%Y%m%d", errors="coerce")
+        >= pd.to_datetime("20181204", format="%Y%m%d")
+        or term == "all"
     ]
 
     term_df = pd.DataFrame(valid_terms, columns=["term", "start_dt", "end_dt"])
@@ -692,8 +777,8 @@ def get_tmp_return(connection, sFndDate):
     all_returns = []
     for _, row in term_df.iterrows():
         filtered = result_return[
-            (result_return["trddate"] >= row["start_dt"]) &
-            (result_return["trddate"] <= row["end_dt"])
+            (result_return["trddate"] >= row["start_dt"])
+            & (result_return["trddate"] <= row["end_dt"])
         ].copy()
         filtered["term"] = row["term"]
         filtered["start_dt"] = row["start_dt"]
@@ -726,9 +811,9 @@ def calculate_performance(tmp_riskgrade, tmp_return):
         ]
     ]
 
-    tmp_performance = tmp_return.groupby(["auth_id", "term", "risk_grade", "prd_gb"], as_index=False).agg(
-        total_rt=("rtn_1d", lambda x: (x + 1).prod() * 100 - 100)
-    )
+    tmp_performance = tmp_return.groupby(
+        ["auth_id", "term", "risk_grade", "prd_gb"], as_index=False
+    ).agg(total_rt=("rtn_1d", lambda x: (x + 1).prod() * 100 - 100))
     tmp_performance["total_rt"] = tmp_performance["total_rt"].round(2)
 
     return tmp_performance[["auth_id", "term", "risk_grade", "prd_gb", "total_rt"]]
@@ -772,9 +857,18 @@ volatility_map = {
     "5": {"f12": "10.90", "f11": "11.51"},
 }
 
+
 def add_expected_return_and_volatility(df):
-    df["expected_return"] = df.apply(lambda row: expected_return_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
-    df["volatility"] = df.apply(lambda row: volatility_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""), axis=1)
+    df["expected_return"] = df.apply(
+        lambda row: expected_return_map.get(row["risk_grade"], {}).get(
+            row["prd_gb"], ""
+        ),
+        axis=1,
+    )
+    df["volatility"] = df.apply(
+        lambda row: volatility_map.get(row["risk_grade"], {}).get(row["prd_gb"], ""),
+        axis=1,
+    )
     return df
 
 
@@ -793,7 +887,7 @@ def create_return_lst_column(df, sFndDate):
             f"{row['volatility']};"
             f"{row['total_rt_1m']};"
         ),
-        axis=1
+        axis=1,
     )
 
     return df
@@ -899,11 +993,13 @@ def get_next_rebalancing_date(connection, target_date, i_opent_day):
         text(query),
         {"target_date": target_date, "i_opent_day": i_opent_day},
     ).fetchone()
-    
+
     return result[0] if result else ""
 
 
-def fetch_rebalcus_data(connection, target_date, investgb, rebal_day_yn, next_rebal_date, sSetFile):
+def fetch_rebalcus_data(
+    connection, target_date, investgb, rebal_day_yn, next_rebal_date, sSetFile
+):
     query = """
         SELECT 
             :indate AS indate,
@@ -937,7 +1033,14 @@ def fetch_rebalcus_data(connection, target_date, investgb, rebal_day_yn, next_re
     )
 
 
-def update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile):
+def update_manual_rebalancing(
+    connection,
+    final_rebalcus_data,
+    manual_customer_ids,
+    manual_rebal_yn,
+    target_date,
+    sSetFile,
+):
     for customer_id in manual_customer_ids:
         # 업데이트할 lst 값 생성
         updated_lst_value = f"{customer_id};{manual_rebal_yn};{target_date};"
@@ -965,7 +1068,9 @@ def update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_i
                 "customer_id_prefix": f"{customer_id}%;",
             },
         )
-    log_message(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
+    log_message(
+        f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
+    )
 
 
 def prepare_final_rebalcus_df(dataframes):
@@ -977,22 +1082,18 @@ def prepare_final_rebalcus_df(dataframes):
 
 def prepare_final_df(merged, sSetFile):
     current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-    
+
     final_df = merged[["idx", "lst"]].copy()
-    final_df = final_df.assign(
-        indate=current_time,
-        send_filename=sSetFile
-    )[["indate", "send_filename", "idx", "lst"]]
-    
+    final_df = final_df.assign(indate=current_time, send_filename=sSetFile)[
+        ["indate", "send_filename", "idx", "lst"]
+    ]
+
     return final_df
 
 
 def insert_bcpdata(connection, final_df):
     final_df.to_sql(
-        name="TBL_FOSS_BCPDATA",
-        con=connection,
-        if_exists="append",
-        index=False
+        name="TBL_FOSS_BCPDATA", con=connection, if_exists="append", index=False
     )
 
 
