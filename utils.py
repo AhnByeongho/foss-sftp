@@ -52,41 +52,27 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
             for row in csv_reader:
                 if len(row) == 12:  # 데이터 유효성 검사
                     unique_rows.add(
-                        tuple(row)
+                        tuple(row[1:])
                     )  # 리스트를 튜플로 변환 후 집합에 추가
 
-            # 삽입 쿼리
-            insert_query = """
-            INSERT INTO TBL_FOSS_UNIVERSE (
-                trddate, fund_cd, foss_fund_cd, fund_nm, fund_cd_s, tradeyn,
-                class_gb, risk_grade, investgb, co_cd, co_nm, total_cnt, regdate
+            # Final Dataframe
+            final_df = pd.DataFrame(
+                unique_rows,
+                columns=["fund_cd", "foss_fund_cd", "fund_nm", "fund_cd_s", "tradeyn", "class_gb", "risk_grade", "investgb", "co_cd", "co_nm", "total_cnt"]
             )
-            VALUES (:trddate, :fund_cd, :foss_fund_cd, :fund_nm, :fund_cd_s, :tradeyn,
-                    :class_gb, :risk_grade, :investgb, :co_cd, :co_nm, :total_cnt, GETDATE())
-            """
-            for row in unique_rows:
-                try:
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "trddate": target_date,
-                            "fund_cd": row[1].strip(),
-                            "foss_fund_cd": row[2].strip(),
-                            "fund_nm": row[3].strip(),
-                            "fund_cd_s": row[4].strip(),
-                            "tradeyn": row[5].strip(),
-                            "class_gb": row[6].strip(),
-                            "risk_grade": row[7].strip(),
-                            "investgb": row[8].strip(),
-                            "co_cd": row[9].strip(),
-                            "co_nm": row[10].strip(),
-                            "total_cnt": int(row[11].strip()),
-                        },
-                    )
-                except ValueError as ve:
-                    log_message(f"Data parsing error for row: {row} | Error: {ve}")
-                    continue
+            for col in final_df.select_dtypes(include='object').columns:
+                final_df[col] = final_df[col].str.strip()
+            final_df["trddate"] = target_date
+            final_df["total_cnt"] = final_df["total_cnt"].astype(int)
+            final_df["regdate"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
+            # 데이터 TBL_FOSS_UNIVERSE 테이블에 삽입
+            final_df.to_sql(
+                name="TBL_FOSS_UNIVERSE",
+                con=connection,
+                if_exists="append",
+                index=False
+            )
             log_message("Data(fnd_list) inserted successfully with duplicates removed.")
 
     except Exception as e:
@@ -125,40 +111,28 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
                     unique_rows.add(
                         tuple(row)
                     )  # 리스트를 튜플로 변환 후 집합에 추가
-
-            # 삽입 쿼리
-            insert_query = """
-            INSERT INTO TBL_FOSS_CUSTOMERACCOUNT (
-                trddate, customer_id, investgb, risk_grade, invest_principal,
-                totalappraisal_price, revenue_price, order_status, deposit_price, regdate
-            ) VALUES (
-                :trddate, :customer_id, :investgb, :risk_grade, :invest_principal,
-                :totalappraisal_price, :revenue_price, :order_status, :deposit_price, GETDATE()
+            
+            # Final Dataframe
+            final_df = pd.DataFrame(
+                unique_rows,
+                columns=["customer_id", "investgb", "risk_grade", "invest_principal", "totalappraisal_price", "revenue_price", "order_status", "deposit_price"]
             )
-            """
-            for row in unique_rows:
-                try:
-                    # 데이터 삽입
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "trddate": target_date,
-                            "customer_id": row[0].strip(),
-                            "investgb": row[1].strip(),
-                            "risk_grade": row[2].strip(),
-                            "invest_principal": int(row[3].strip()),
-                            "totalappraisal_price": int(row[4].strip()),
-                            "revenue_price": int(row[5].strip()),
-                            "order_status": row[6].strip(),
-                            "deposit_price": int(row[7].strip()),
-                        },
-                    )
-                except ValueError as ve:
-                    log_message(
-                        f"Data(ap_acc_info) conversion error for row: {row} | Error: {ve}"
-                    )
-                    continue
+            for col in final_df.select_dtypes(include='object').columns:
+                final_df[col] = final_df[col].str.strip()
+            final_df["trddate"] = target_date
+            final_df["invest_principal"] = final_df["invest_principal"].astype(int)
+            final_df["totalappraisal_price"] = final_df["totalappraisal_price"].astype(int)
+            final_df["revenue_price"] = final_df["revenue_price"].astype(int)
+            final_df["deposit_price"] = final_df["deposit_price"].astype(int)
+            final_df["regdate"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
+            # 데이터 TBL_FOSS_CUSTOMERACCOUNT 테이블에 삽입
+            final_df.to_sql(
+                name="TBL_FOSS_CUSTOMERACCOUNT",
+                con=connection,
+                if_exists="append",
+                index=False
+            )
             log_message("Data(ap_acc_info) inserted successfully with duplicates removed.")
 
     except Exception as e:
@@ -198,34 +172,26 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
                         tuple(row)
                     )  # 리스트를 튜플로 변환 후 집합에 추가
 
-            # 삽입 쿼리
-            insert_query = """
-            INSERT INTO TBL_FOSS_CUSTOMERFUND (
-                trddate, customer_id, fund_cd, invest_principal, appraisal_price, revenue_price, regdate
-            ) VALUES (
-                :trddate, :customer_id, :fund_cd, :invest_principal, :appraisal_price, :revenue_price, GETDATE()
+            # Final Dataframe
+            final_df = pd.DataFrame(
+                unique_rows,
+                columns=["customer_id", "fund_cd", "invest_principal", "appraisal_price", "revenue_price"]
             )
-            """
-            for row in unique_rows:
-                try:
-                    # 데이터 삽입
-                    connection.execute(
-                        text(insert_query),
-                        {
-                            "trddate": target_date,
-                            "customer_id": row[0].strip(),
-                            "fund_cd": row[1].strip(),
-                            "invest_principal": int(row[2].strip()),
-                            "appraisal_price": int(row[3].strip()),
-                            "revenue_price": int(row[4].strip()),
-                        },
-                    )
-                except ValueError as ve:
-                    log_message(
-                        f"Data(ap_fnd_info) conversion error for row: {row} | Error: {ve}"
-                    )
-                    continue
+            for col in final_df.select_dtypes(include='object').columns:
+                final_df[col] = final_df[col].str.strip()
+            final_df["trddate"] = target_date
+            final_df["invest_principal"] = final_df["invest_principal"].astype(int)
+            final_df["appraisal_price"] = final_df["appraisal_price"].astype(int)
+            final_df["revenue_price"] = final_df["revenue_price"].astype(int)
+            final_df["regdate"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
+            # 데이터 TBL_FOSS_CUSTOMERFUND 테이블에 삽입
+            final_df.to_sql(
+                name="TBL_FOSS_CUSTOMERFUND",
+                con=connection,
+                if_exists="append",
+                index=False
+            )
             log_message("Data(ap_fnd_info) inserted successfully with duplicates removed.")
 
     except Exception as e:
@@ -571,13 +537,8 @@ def process_report(connection, target_date, sftp_client):
                 # insert_data를 DataFrame으로 변환
                 insert_df = pd.DataFrame(insert_data)
 
-                # TBL_FOSS_BCPDATA에 삽입
-                insert_query = text("""
-                    INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                    VALUES (:indate, :send_filename, :idx, :lst)
-                """)
-                connection.execute(insert_query, insert_data)
-
+                # TBL_FOSS_BCPDATA에 데이터 삽입
+                insert_bcpdata(connection, insert_df)
                 log_message(
                     f"Report data for {target_date} has been processed and inserted."
                 )
@@ -1027,20 +988,12 @@ def prepare_final_df(merged, sSetFile):
 
 
 def insert_bcpdata(connection, final_df):
-    insert_query = """
-    INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-    VALUES (:indate, :send_filename, :idx, :lst)
-    """
-    for _, row in final_df.iterrows():
-        connection.execute(
-            text(insert_query),
-            {
-                "indate": row["indate"],
-                "send_filename": row["send_filename"],
-                "idx": row["idx"],
-                "lst": row["lst"],
-            },
-        )
+    final_df.to_sql(
+        name="TBL_FOSS_BCPDATA",
+        con=connection,
+        if_exists="append",
+        index=False
+    )
 
 
 def log_message(message):
