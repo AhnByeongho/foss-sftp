@@ -7,88 +7,85 @@ from io import StringIO
 from datetime import datetime, timedelta
 
 
-def delete_old_bcp_data(engine):
+def delete_old_bcp_data(connection):
     """
     Deletes data older than 1 month from the TBL_FOSS_BCPDATA table.
     """
     try:
-        with engine.connect() as connection:
-            delete_query = text("""
-            DELETE FROM TBL_FOSS_BCPDATA
-            WHERE LEFT(indate, 8) < FORMAT(DATEADD(MONTH, -1, GETDATE()), 'yyyyMMdd')
-            """)
-            connection.execute(delete_query)
-            print("Old BCP data older than 1 month deleted successfully.")
+        delete_query = text("""
+        DELETE FROM TBL_FOSS_BCPDATA
+        WHERE LEFT(indate, 8) < FORMAT(DATEADD(MONTH, -1, GETDATE()), 'yyyyMMdd')
+        """)
+        connection.execute(delete_query)
+        print("Old BCP data older than 1 month deleted successfully.")
     except Exception as e:
         print(f"An error occurred while deleting old BCP data: {e}")
 
 
-def insert_fnd_list_data(engine, fnd_list, target_date):
+def insert_fnd_list_data(connection, fnd_list, target_date):
     """
     Inserts data from fnd_list into TBL_FOSS_UNIVERSE after removing duplicates.
 
-    :param engine: SQLAlchemy engine
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param fnd_list: String content of the fund list
     :param target_date: Date for which the data is being inserted
     """
     try:
-        # 엔진에서 연결 생성
-        with engine.connect() as connection:
-            with connection.begin():
-                # 해당 날짜 데이터 중복 여부 확인
-                check_query = """
-                SELECT COUNT(*) FROM TBL_FOSS_UNIVERSE WHERE trddate = :target_date
-                """
-                result = connection.execute(
-                    text(check_query), {"target_date": target_date}
-                ).scalar()
+        with connection.begin():
+            # 해당 날짜 데이터 중복 여부 확인
+            check_query = """
+            SELECT COUNT(*) FROM TBL_FOSS_UNIVERSE WHERE trddate = :target_date
+            """
+            result = connection.execute(
+                text(check_query), {"target_date": target_date}
+            ).scalar()
 
-                if result > 0:
-                    print(
-                        f"Data(fnd_list) for {target_date} already exists. Skipping insertion."
-                    )
-                    return
-
-                # fnd_list 데이터 파싱 및 중복 제거
-                csv_reader = csv.reader(StringIO(fnd_list), delimiter=";")
-                unique_rows = set()  # 중복 제거를 위한 집합
-                for row in csv_reader:
-                    if len(row) == 12:  # 데이터 유효성 검사
-                        unique_rows.add(
-                            tuple(row)
-                        )  # 리스트를 튜플로 변환 후 집합에 추가
-
-                # 삽입 쿼리
-                insert_query = """
-                INSERT INTO TBL_FOSS_UNIVERSE (
-                    trddate, fund_cd, foss_fund_cd, fund_nm, fund_cd_s, tradeyn,
-                    class_gb, risk_grade, investgb, co_cd, co_nm, total_cnt, regdate
+            if result > 0:
+                print(
+                    f"Data(fnd_list) for {target_date} already exists. Skipping insertion."
                 )
-                VALUES (:trddate, :fund_cd, :foss_fund_cd, :fund_nm, :fund_cd_s, :tradeyn,
-                        :class_gb, :risk_grade, :investgb, :co_cd, :co_nm, :total_cnt, GETDATE())
-                """
-                for row in unique_rows:
-                    try:
-                        connection.execute(
-                            text(insert_query),
-                            {
-                                "trddate": target_date,
-                                "fund_cd": row[1].strip(),
-                                "foss_fund_cd": row[2].strip(),
-                                "fund_nm": row[3].strip(),
-                                "fund_cd_s": row[4].strip(),
-                                "tradeyn": row[5].strip(),
-                                "class_gb": row[6].strip(),
-                                "risk_grade": row[7].strip(),
-                                "investgb": row[8].strip(),
-                                "co_cd": row[9].strip(),
-                                "co_nm": row[10].strip(),
-                                "total_cnt": int(row[11].strip()),
-                            },
-                        )
-                    except ValueError as ve:
-                        print(f"Data parsing error for row: {row} | Error: {ve}")
-                        continue
+                return
+
+            # fnd_list 데이터 파싱 및 중복 제거
+            csv_reader = csv.reader(StringIO(fnd_list), delimiter=";")
+            unique_rows = set()  # 중복 제거를 위한 집합
+            for row in csv_reader:
+                if len(row) == 12:  # 데이터 유효성 검사
+                    unique_rows.add(
+                        tuple(row)
+                    )  # 리스트를 튜플로 변환 후 집합에 추가
+
+            # 삽입 쿼리
+            insert_query = """
+            INSERT INTO TBL_FOSS_UNIVERSE (
+                trddate, fund_cd, foss_fund_cd, fund_nm, fund_cd_s, tradeyn,
+                class_gb, risk_grade, investgb, co_cd, co_nm, total_cnt, regdate
+            )
+            VALUES (:trddate, :fund_cd, :foss_fund_cd, :fund_nm, :fund_cd_s, :tradeyn,
+                    :class_gb, :risk_grade, :investgb, :co_cd, :co_nm, :total_cnt, GETDATE())
+            """
+            for row in unique_rows:
+                try:
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "trddate": target_date,
+                            "fund_cd": row[1].strip(),
+                            "foss_fund_cd": row[2].strip(),
+                            "fund_nm": row[3].strip(),
+                            "fund_cd_s": row[4].strip(),
+                            "tradeyn": row[5].strip(),
+                            "class_gb": row[6].strip(),
+                            "risk_grade": row[7].strip(),
+                            "investgb": row[8].strip(),
+                            "co_cd": row[9].strip(),
+                            "co_nm": row[10].strip(),
+                            "total_cnt": int(row[11].strip()),
+                        },
+                    )
+                except ValueError as ve:
+                    print(f"Data parsing error for row: {row} | Error: {ve}")
+                    continue
 
             print("Data(fnd_list) inserted successfully with duplicates removed.")
 
@@ -96,73 +93,71 @@ def insert_fnd_list_data(engine, fnd_list, target_date):
         print(f"An error occurred while inserting data(fnd_list): {e}")
 
 
-def insert_customer_account_data(engine, ap_acc_info, target_date):
+def insert_customer_account_data(connection, ap_acc_info, target_date):
     """
     Inserts data from ap_acc_info into TBL_FOSS_CUSTOMERACCOUNT after removing duplicates.
 
-    :param engine: SQLAlchemy engine
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param ap_acc_info: String content of the customer account information
     :param target_date: Date for which the data is being inserted
     """
     try:
-        # 엔진에서 연결 생성
-        with engine.connect() as connection:
-            with connection.begin():
-                # 중복 데이터 확인
-                check_query = """
-                SELECT COUNT(*) AS cnt FROM TBL_FOSS_CUSTOMERACCOUNT WHERE trddate = :target_date
-                """
-                count = connection.execute(
-                    text(check_query), {"target_date": target_date}
-                ).scalar()
+        with connection.begin():
+            # 중복 데이터 확인
+            check_query = """
+            SELECT COUNT(*) AS cnt FROM TBL_FOSS_CUSTOMERACCOUNT WHERE trddate = :target_date
+            """
+            count = connection.execute(
+                text(check_query), {"target_date": target_date}
+            ).scalar()
 
-                if count > 0:
-                    print(
-                        f"Data(ap_acc_info) for {target_date} already exists. Skipping insertion."
-                    )
-                    return
-
-                # 데이터 파싱 및 중복 제거
-                csv_reader = csv.reader(StringIO(ap_acc_info), delimiter=";")
-                unique_rows = set()  # 중복 제거를 위한 집합
-                for row in csv_reader:
-                    if len(row) == 8:  # 데이터 유효성 검사
-                        unique_rows.add(
-                            tuple(row)
-                        )  # 리스트를 튜플로 변환 후 집합에 추가
-
-                # 삽입 쿼리
-                insert_query = """
-                INSERT INTO TBL_FOSS_CUSTOMERACCOUNT (
-                    trddate, customer_id, investgb, risk_grade, invest_principal,
-                    totalappraisal_price, revenue_price, order_status, deposit_price, regdate
-                ) VALUES (
-                    :trddate, :customer_id, :investgb, :risk_grade, :invest_principal,
-                    :totalappraisal_price, :revenue_price, :order_status, :deposit_price, GETDATE()
+            if count > 0:
+                print(
+                    f"Data(ap_acc_info) for {target_date} already exists. Skipping insertion."
                 )
-                """
-                for row in unique_rows:
-                    try:
-                        # 데이터 삽입
-                        connection.execute(
-                            text(insert_query),
-                            {
-                                "trddate": target_date,
-                                "customer_id": row[0].strip(),
-                                "investgb": row[1].strip(),
-                                "risk_grade": row[2].strip(),
-                                "invest_principal": int(row[3].strip()),
-                                "totalappraisal_price": int(row[4].strip()),
-                                "revenue_price": int(row[5].strip()),
-                                "order_status": row[6].strip(),
-                                "deposit_price": int(row[7].strip()),
-                            },
-                        )
-                    except ValueError as ve:
-                        print(
-                            f"Data(ap_acc_info) conversion error for row: {row} | Error: {ve}"
-                        )
-                        continue
+                return
+
+            # 데이터 파싱 및 중복 제거
+            csv_reader = csv.reader(StringIO(ap_acc_info), delimiter=";")
+            unique_rows = set()  # 중복 제거를 위한 집합
+            for row in csv_reader:
+                if len(row) == 8:  # 데이터 유효성 검사
+                    unique_rows.add(
+                        tuple(row)
+                    )  # 리스트를 튜플로 변환 후 집합에 추가
+
+            # 삽입 쿼리
+            insert_query = """
+            INSERT INTO TBL_FOSS_CUSTOMERACCOUNT (
+                trddate, customer_id, investgb, risk_grade, invest_principal,
+                totalappraisal_price, revenue_price, order_status, deposit_price, regdate
+            ) VALUES (
+                :trddate, :customer_id, :investgb, :risk_grade, :invest_principal,
+                :totalappraisal_price, :revenue_price, :order_status, :deposit_price, GETDATE()
+            )
+            """
+            for row in unique_rows:
+                try:
+                    # 데이터 삽입
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "trddate": target_date,
+                            "customer_id": row[0].strip(),
+                            "investgb": row[1].strip(),
+                            "risk_grade": row[2].strip(),
+                            "invest_principal": int(row[3].strip()),
+                            "totalappraisal_price": int(row[4].strip()),
+                            "revenue_price": int(row[5].strip()),
+                            "order_status": row[6].strip(),
+                            "deposit_price": int(row[7].strip()),
+                        },
+                    )
+                except ValueError as ve:
+                    print(
+                        f"Data(ap_acc_info) conversion error for row: {row} | Error: {ve}"
+                    )
+                    continue
 
             print("Data(ap_acc_info) inserted successfully with duplicates removed.")
 
@@ -170,68 +165,66 @@ def insert_customer_account_data(engine, ap_acc_info, target_date):
         print(f"An error occurred while inserting data(ap_acc_info): {e}")
 
 
-def insert_customer_fund_data(engine, ap_fnd_info, target_date):
+def insert_customer_fund_data(connection, ap_fnd_info, target_date):
     """
     Inserts data from ap_fnd_info into TBL_FOSS_CUSTOMERFUND after removing duplicates.
 
-    :param engine: SQLAlchemy engine
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param ap_fnd_info: String content of the customer fund information
     :param target_date: Date for which the data is being inserted
     """
     try:
-        # 엔진에서 연결 생성
-        with engine.connect() as connection:
-            with connection.begin():
-                # 중복 데이터 확인
-                check_query = """
-                SELECT COUNT(*) AS cnt FROM TBL_FOSS_CUSTOMERFUND WHERE trddate = :target_date
-                """
-                count = connection.execute(
-                    text(check_query), {"target_date": target_date}
-                ).scalar()
+        with connection.begin():
+            # 중복 데이터 확인
+            check_query = """
+            SELECT COUNT(*) AS cnt FROM TBL_FOSS_CUSTOMERFUND WHERE trddate = :target_date
+            """
+            count = connection.execute(
+                text(check_query), {"target_date": target_date}
+            ).scalar()
 
-                if count > 0:
-                    print(
-                        f"Data(ap_fnd_info) for {target_date} already exists. Skipping insertion."
-                    )
-                    return
-
-                # 데이터 파싱 및 중복 제거
-                csv_reader = csv.reader(StringIO(ap_fnd_info), delimiter=";")
-                unique_rows = set()  # 중복 제거를 위한 집합
-                for row in csv_reader:
-                    if len(row) == 5:  # 데이터 유효성 검사
-                        unique_rows.add(
-                            tuple(row)
-                        )  # 리스트를 튜플로 변환 후 집합에 추가
-
-                # 삽입 쿼리
-                insert_query = """
-                INSERT INTO TBL_FOSS_CUSTOMERFUND (
-                    trddate, customer_id, fund_cd, invest_principal, appraisal_price, revenue_price, regdate
-                ) VALUES (
-                    :trddate, :customer_id, :fund_cd, :invest_principal, :appraisal_price, :revenue_price, GETDATE()
+            if count > 0:
+                print(
+                    f"Data(ap_fnd_info) for {target_date} already exists. Skipping insertion."
                 )
-                """
-                for row in unique_rows:
-                    try:
-                        # 데이터 삽입
-                        connection.execute(
-                            text(insert_query),
-                            {
-                                "trddate": target_date,
-                                "customer_id": row[0].strip(),
-                                "fund_cd": row[1].strip(),
-                                "invest_principal": int(row[2].strip()),
-                                "appraisal_price": int(row[3].strip()),
-                                "revenue_price": int(row[4].strip()),
-                            },
-                        )
-                    except ValueError as ve:
-                        print(
-                            f"Data(ap_fnd_info) conversion error for row: {row} | Error: {ve}"
-                        )
-                        continue
+                return
+
+            # 데이터 파싱 및 중복 제거
+            csv_reader = csv.reader(StringIO(ap_fnd_info), delimiter=";")
+            unique_rows = set()  # 중복 제거를 위한 집합
+            for row in csv_reader:
+                if len(row) == 5:  # 데이터 유효성 검사
+                    unique_rows.add(
+                        tuple(row)
+                    )  # 리스트를 튜플로 변환 후 집합에 추가
+
+            # 삽입 쿼리
+            insert_query = """
+            INSERT INTO TBL_FOSS_CUSTOMERFUND (
+                trddate, customer_id, fund_cd, invest_principal, appraisal_price, revenue_price, regdate
+            ) VALUES (
+                :trddate, :customer_id, :fund_cd, :invest_principal, :appraisal_price, :revenue_price, GETDATE()
+            )
+            """
+            for row in unique_rows:
+                try:
+                    # 데이터 삽입
+                    connection.execute(
+                        text(insert_query),
+                        {
+                            "trddate": target_date,
+                            "customer_id": row[0].strip(),
+                            "fund_cd": row[1].strip(),
+                            "invest_principal": int(row[2].strip()),
+                            "appraisal_price": int(row[3].strip()),
+                            "revenue_price": int(row[4].strip()),
+                        },
+                    )
+                except ValueError as ve:
+                    print(
+                        f"Data(ap_fnd_info) conversion error for row: {row} | Error: {ve}"
+                    )
+                    continue
 
             print("Data(ap_fnd_info) inserted successfully with duplicates removed.")
 
@@ -239,7 +232,7 @@ def insert_customer_fund_data(engine, ap_fnd_info, target_date):
         print(f"An error occurred while inserting data(ap_fnd_info): {e}")
 
 
-def process_yesterday_return_data(engine, target_date, sftp_client):
+def process_yesterday_return_data(connection, target_date, sftp_client):
     """
     Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
@@ -250,7 +243,7 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
     - Inserts data into TBL_FOSS_BCPDATA table.
     - Uploads the CSV file to the SFTP server.
 
-    :param engine: SQLAlchemy engine
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param target_date: Target date for processing
     :param sftp_client: SFTP client for file operations
     """
@@ -262,72 +255,71 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
         # 파일 이름 설정
         sSetFile = f"mp_info.{target_date}"
 
-        with engine.connect() as connection:
-            with connection.begin():
-                # 최근 영업일 계산
-                sFndDate = get_recent_business_date(target_date)
+        with connection.begin():
+            # 최근 영업일 계산
+            sFndDate = get_recent_business_date(target_date)
 
-                if not sFndDate:
-                    raise ValueError("No valid fund base date found.")
+            if not sFndDate:
+                raise ValueError("No valid fund base date found.")
 
-                # 생성해야 되는 데이터 확인
-                query_result_return = """
-                SELECT COUNT(auth_id)
-                FROM TBL_RESULT_RETURN
-                WHERE auth_id = :auth_id AND trddate = :trddate
-                """
-                count_result_return = connection.execute(
-                    text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
-                ).scalar()
+            # 생성해야 되는 데이터 확인
+            query_result_return = """
+            SELECT COUNT(auth_id)
+            FROM TBL_RESULT_RETURN
+            WHERE auth_id = :auth_id AND trddate = :trddate
+            """
+            count_result_return = connection.execute(
+                text(query_result_return), {"auth_id": "foss", "trddate": sFndDate}
+            ).scalar()
 
-                query_result_mplist = """
-                SELECT COUNT(S1.port_cd)
-                FROM (
-                    SELECT port_cd
-                    FROM TBL_RESULT_MPLIST
-                    WHERE auth_id = :auth_id
-                        AND rebal_date = (
-                            SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
-                        )
-                    GROUP BY port_cd
-                ) AS S1
-                """
-                count_port_cd = connection.execute(
-                    text(query_result_mplist), {"auth_id": "foss"}
-                ).scalar()
-
-                if count_result_return != count_port_cd:
-                    print(
-                        "Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped."
+            query_result_mplist = """
+            SELECT COUNT(S1.port_cd)
+            FROM (
+                SELECT port_cd
+                FROM TBL_RESULT_MPLIST
+                WHERE auth_id = :auth_id
+                    AND rebal_date = (
+                        SELECT MAX(rebal_date) FROM TBL_RESULT_MPLIST WHERE auth_id = :auth_id
                     )
-                    return  # 프로세스 중단
+                GROUP BY port_cd
+            ) AS S1
+            """
+            count_port_cd = connection.execute(
+                text(query_result_mplist), {"auth_id": "foss"}
+            ).scalar()
 
-                # TMP_PERFORMANCE 데이터프레임 생성
-                TMP_PERFORMANCE = get_tmp_performance(connection, "foss", sFndDate)
-
-                terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
-                merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
-                merged = add_expected_return_and_volatility(merged)
-                merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(drop=True)
-                merged = create_return_lst_column(merged, sFndDate)
-                merged["idx"] = merged.index + 1
-
-                # Final Dataframe
-                final_df = prepare_final_df(merged, sSetFile)
-
-                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                insert_bcpdata(connection, final_df)
+            if count_result_return != count_port_cd:
                 print(
-                    "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
+                    "Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped."
                 )
+                return  # 프로세스 중단
 
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
+            # TMP_PERFORMANCE 데이터프레임 생성
+            TMP_PERFORMANCE = get_tmp_performance(connection, "foss", sFndDate)
+
+            terms_to_merge = ["1m", "3m", "6m", "1y", "all"]
+            merged = merge_terms(TMP_PERFORMANCE, terms_to_merge)
+            merged = add_expected_return_and_volatility(merged)
+            merged = merged.sort_values(by=["prd_gb", "risk_grade"]).reset_index(drop=True)
+            merged = create_return_lst_column(merged, sFndDate)
+            merged["idx"] = merged.index + 1
+
+            # Final Dataframe
+            final_df = prepare_final_df(merged, sSetFile)
+
+            # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+            insert_bcpdata(connection, final_df)
+            print(
+                "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
+            )
+
+            # CSV 파일 저장
+            local_file_path = (
+                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            )
+            final_df[["lst"]].to_csv(
+                local_file_path, index=False, header=False, encoding="utf-8"
+            )
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
@@ -350,7 +342,7 @@ def process_yesterday_return_data(engine, target_date, sftp_client):
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_list(engine, target_date, sftp_client):
+def process_mp_list(connection, target_date, sftp_client):
     """
     Processes the MP List data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
     and uploads the file to the SFTP server.
@@ -361,7 +353,7 @@ def process_mp_list(engine, target_date, sftp_client):
     - Generates a CSV file for transmission.
     - Uploads the CSV file to the SFTP server.
 
-    :param engine: SQLAlchemy engine instance used for database operations.
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param target_date: The target date for processing.
     :param sftp_client: Configured SFTP client for file transmission.
     """
@@ -369,30 +361,29 @@ def process_mp_list(engine, target_date, sftp_client):
         # 파일 이름 설정
         sSetFile = f"mp_fnd_info.{target_date}"
 
-        with engine.connect() as connection:
-            with connection.begin():
-                # MP List 데이터 조회
-                raw_df = fetch_mp_list_data(connection, target_date, "foss")
+        with connection.begin():
+            # MP List 데이터 조회
+            raw_df = fetch_mp_list_data(connection, target_date, "foss")
 
-                # 데이터 전처리
-                raw_df = preprocess_mp_list_data(raw_df)
+            # 데이터 전처리
+            raw_df = preprocess_mp_list_data(raw_df)
 
-                # Final Dataframe
-                final_df = prepare_final_df(raw_df, sSetFile)
+            # Final Dataframe
+            final_df = prepare_final_df(raw_df, sSetFile)
 
-                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                insert_bcpdata(connection, final_df)
-                print(
-                    "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
-                )
+            # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+            insert_bcpdata(connection, final_df)
+            print(
+                "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
+            )
 
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
+            # CSV 파일 저장
+            local_file_path = (
+                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            )
+            final_df[["lst"]].to_csv(
+                local_file_path, index=False, header=False, encoding="utf-8"
+            )
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
@@ -416,7 +407,7 @@ def process_mp_list(engine, target_date, sftp_client):
 
 
 def process_rebalcus(
-    engine,
+    connection,
     target_date,
     sftp_client,
     manual_customer_ids=None,
@@ -435,7 +426,7 @@ def process_rebalcus(
     - Generates a CSV file for transmission.
     - Uploads the CSV file to the SFTP server.
 
-    :param engine: SQLAlchemy engine instance used for database operations.
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param target_date: The target date for processing.
     :param sftp_client: Configured SFTP client for file transmission.
     :param manual_customer_ids: (Optional) List of customer IDs for manual rebalancing.
@@ -445,48 +436,47 @@ def process_rebalcus(
         # 파일 이름 설정
         sSetFile = f"ap_reval_yn.{target_date}"
 
-        with engine.connect() as connection:
-            with connection.begin():
-                # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
-                sRebalDayYN = check_rebalancing(connection, target_date, "foss", "f12")     # 연금(f12) 리밸런싱 여부
-                sRebalDayYN2 = check_rebalancing(connection, target_date, "foss", "f11")     # 연금(f11) 리밸런싱 여부
+        with connection.begin():
+            # 리밸런싱 여부 확인 (f12: 연금, f11: 일반)
+            sRebalDayYN = check_rebalancing(connection, target_date, "foss", "f12")     # 연금(f12) 리밸런싱 여부
+            sRebalDayYN2 = check_rebalancing(connection, target_date, "foss", "f11")     # 연금(f11) 리밸런싱 여부
 
-                i_opent_day = 3  # 영업일
+            i_opent_day = 3  # 영업일
 
-                # 연금(f12), 일반(f11) 다음 리밸런싱 날짜 계산
-                next_rebal_date = get_next_rebalancing_date(connection, target_date, i_opent_day)
+            # 연금(f12), 일반(f11) 다음 리밸런싱 날짜 계산
+            next_rebal_date = get_next_rebalancing_date(connection, target_date, i_opent_day)
 
-                # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
-                current_date = datetime.now().strftime("%Y%m%d")
-                if forced_rebal_dates is not None:
-                    if current_date in forced_rebal_dates:
-                        sRebalDayYN = "Y"
-                        sRebalDayYN2 = "Y"
+            # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
+            current_date = datetime.now().strftime("%Y%m%d")
+            if forced_rebal_dates is not None:
+                if current_date in forced_rebal_dates:
+                    sRebalDayYN = "Y"
+                    sRebalDayYN2 = "Y"
 
-                # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
-                pension_data = fetch_rebalcus_data(connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile)   # 연금(f12) 데이터 조회
-                general_data = fetch_rebalcus_data(connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile)  # 일반(f11) 데이터 조회
+            # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
+            pension_data = fetch_rebalcus_data(connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile)   # 연금(f12) 데이터 조회
+            general_data = fetch_rebalcus_data(connection, target_date, "61", sRebalDayYN2, next_rebal_date, sSetFile)  # 일반(f11) 데이터 조회
 
-                # Final Dataframe
-                final_rebalcus_data = prepare_final_rebalcus_df([pension_data, general_data])
+            # Final Dataframe
+            final_rebalcus_data = prepare_final_rebalcus_df([pension_data, general_data])
 
-                # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
-                insert_bcpdata(connection, final_rebalcus_data)
-                print(
-                    "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
-                )
+            # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
+            insert_bcpdata(connection, final_rebalcus_data)
+            print(
+                "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
+            )
 
-                # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-                if manual_customer_ids is not None and manual_rebal_yn is not None:
-                    update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile)
+            # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
+            if manual_customer_ids is not None and manual_rebal_yn is not None:
+                update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_ids, manual_rebal_yn, target_date, sSetFile)
 
-                # CSV 파일 저장
-                local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                )
-                final_rebalcus_data[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
-                )
+            # CSV 파일 저장
+            local_file_path = (
+                f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            )
+            final_rebalcus_data[["lst"]].to_csv(
+                local_file_path, index=False, header=False, encoding="utf-8"
+            )
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
@@ -509,7 +499,7 @@ def process_rebalcus(
             print(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_report(engine, target_date, sftp_client):
+def process_report(connection, target_date, sftp_client):
     """
     Processes report data for the specified target date, generates a CSV file,
     inserts the data into the TBL_FOSS_BCPDATA table, and uploads the file to the SFTP server.
@@ -521,7 +511,7 @@ def process_report(engine, target_date, sftp_client):
     - Creates a CSV file containing the `lst` data for transmission.
     - Uploads the generated CSV file to the SFTP server.
 
-    :param engine: SQLAlchemy engine instance used for database operations.
+    :param connection: Active database connection instance from SQLAlchemy engine
     :param target_date: The target date for processing the report data (format: YYYYMMDD).
     :param sftp_client: Configured SFTP client for file transmission.
     """
@@ -529,86 +519,85 @@ def process_report(engine, target_date, sftp_client):
         # 파일 이름 설정
         sSetFile = f"report.{target_date}"
 
-        with engine.connect() as connection:
-            with connection.begin():
-                # TBL_FOSS_REPORT에서 오늘 날짜와 동일한 trddate가 있는지 확인
-                check_query = text("""
-                    SELECT COUNT(trddate) 
-                    FROM TBL_FOSS_REPORT 
-                    WHERE trddate = :target_date
+        with connection.begin():
+            # TBL_FOSS_REPORT에서 오늘 날짜와 동일한 trddate가 있는지 확인
+            check_query = text("""
+                SELECT COUNT(trddate) 
+                FROM TBL_FOSS_REPORT 
+                WHERE trddate = :target_date
+            """)
+            result = connection.execute(
+                check_query, {"target_date": target_date}
+            ).scalar()
+
+            if result >= 1:
+                # trddate가 오늘 날짜인 데이터를 가져와서 TBL_FOSS_BCPDATA에 삽입
+                select_query = text("""
+                    SELECT trddate, performance_t, performance_c
+                    FROM TBL_FOSS_REPORT
+                    WHERE trddate = (
+                        SELECT MAX(trddate) 
+                        FROM TBL_FOSS_REPORT 
+                        WHERE trddate <= :target_date
+                    )
                 """)
-                result = connection.execute(
-                    check_query, {"target_date": target_date}
-                ).scalar()
+                df = pd.read_sql(
+                    select_query, connection, params={"target_date": target_date}
+                )
 
-                if result >= 1:
-                    # trddate가 오늘 날짜인 데이터를 가져와서 TBL_FOSS_BCPDATA에 삽입
-                    select_query = text("""
-                        SELECT trddate, performance_t, performance_c
-                        FROM TBL_FOSS_REPORT
-                        WHERE trddate = (
-                            SELECT MAX(trddate) 
-                            FROM TBL_FOSS_REPORT 
-                            WHERE trddate <= :target_date
-                        )
-                    """)
-                    df = pd.read_sql(
-                        select_query, connection, params={"target_date": target_date}
+                # 문자열 전처리: performance_t와 performance_c
+                def clean_string(value):
+                    value = value.replace('"', "&quot;")  # "를 &quot;로 변경
+                    value = value.replace("\r", "\n")  # CHAR(13) -> \n
+                    value = value.replace("\n", "")  # CHAR(10)을 없애기
+                    value = value.replace(";", "")  # ;을 없애기
+                    return value
+
+                # BCP 데이터 삽입 준비
+                insert_data = []
+                for idx, row in df.iterrows():
+                    performance_t = clean_string(row["performance_t"])
+                    performance_c = clean_string(row["performance_c"])
+
+                    lst = f"{row['trddate']};{performance_t};{performance_c};"
+                    insert_data.append(
+                        {
+                            "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
+                            "send_filename": sSetFile,
+                            "idx": idx + 1,  # ROW_NUMBER() 대체
+                            "lst": lst,
+                        }
                     )
+                # insert_data를 DataFrame으로 변환
+                insert_df = pd.DataFrame(insert_data)
 
-                    # 문자열 전처리: performance_t와 performance_c
-                    def clean_string(value):
-                        value = value.replace('"', "&quot;")  # "를 &quot;로 변경
-                        value = value.replace("\r", "\n")  # CHAR(13) -> \n
-                        value = value.replace("\n", "")  # CHAR(10)을 없애기
-                        value = value.replace(";", "")  # ;을 없애기
-                        return value
+                # TBL_FOSS_BCPDATA에 삽입
+                insert_query = text("""
+                    INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
+                    VALUES (:indate, :send_filename, :idx, :lst)
+                """)
+                connection.execute(insert_query, insert_data)
 
-                    # BCP 데이터 삽입 준비
-                    insert_data = []
-                    for idx, row in df.iterrows():
-                        performance_t = clean_string(row["performance_t"])
-                        performance_c = clean_string(row["performance_c"])
+                print(
+                    f"Report data for {target_date} has been processed and inserted."
+                )
 
-                        lst = f"{row['trddate']};{performance_t};{performance_c};"
-                        insert_data.append(
-                            {
-                                "indate": datetime.now().strftime("%Y%m%d%H%M%S"),
-                                "send_filename": sSetFile,
-                                "idx": idx + 1,  # ROW_NUMBER() 대체
-                                "lst": lst,
-                            }
-                        )
-                    # insert_data를 DataFrame으로 변환
-                    insert_df = pd.DataFrame(insert_data)
+                # CSV 파일 저장
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                insert_df[["lst"]].to_csv(
+                    local_file_path, index=False, header=False, encoding="utf-8"
+                )
 
-                    # TBL_FOSS_BCPDATA에 삽입
-                    insert_query = text("""
-                        INSERT INTO TBL_FOSS_BCPDATA (indate, send_filename, idx, lst)
-                        VALUES (:indate, :send_filename, :idx, :lst)
-                    """)
-                    connection.execute(insert_query, insert_data)
-
-                    print(
-                        f"Report data for {target_date} has been processed and inserted."
-                    )
-
-                    # CSV 파일 저장
-                    local_file_path = (
-                        f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                    )
-                    insert_df[["lst"]].to_csv(
-                        local_file_path, index=False, header=False, encoding="utf-8"
-                    )
-
-                else:
-                    local_file_path = (
-                        f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
-                    )
-                    with open(local_file_path, "w", encoding="utf-8") as file:
-                        file.write("")  # 빈 파일 생성
-                        
-                    print(f"No report data found for {target_date}.")
+            else:
+                local_file_path = (
+                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                )
+                with open(local_file_path, "w", encoding="utf-8") as file:
+                    file.write("")  # 빈 파일 생성
+                    
+                print(f"No report data found for {target_date}.")
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
@@ -638,7 +627,6 @@ def process_mp_info_eof(target_date, sftp_client):
     - Creates an empty CSV file with the specified name.
     - Uploads the file to the SFTP server.
 
-    :param engine: SQLAlchemy engine instance used for database operations.
     :param target_date: The target date for the EOF file.
     :param sftp_client: Configured SFTP client for file transmission.
     """
