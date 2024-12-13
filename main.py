@@ -12,6 +12,7 @@ from utils import (
     process_rebalcus,
     process_report,
     process_mp_info_eof,
+    log_message,
 )
 
 
@@ -135,21 +136,21 @@ def main():
                     if fnd_list:
                         insert_fnd_list_data(connection, fnd_list, target_date)
                     else:
-                        print(f"No data fnd_list found for {target_date}.")
+                        log_message(f"No data fnd_list found for {target_date}.")
 
                 # ---------------------------- 고객 계좌 정보 수신 ---------------------------- #
                 elif process_type == "RECEIVE_ACCOUNT":  # TBL_FOSS_CUSTOMERACCOUNT
                     if ap_acc_info:
                         insert_customer_account_data(connection, ap_acc_info, target_date)
                     else:
-                        print(f"No data ap_acc_info found for {target_date}.")
+                        log_message(f"No data ap_acc_info found for {target_date}.")
 
                 # --------------------------- 고객 보유펀드 정보 수신 --------------------------- #
                 elif process_type == "RECEIVE_CUSTMERFND":  # TBL_FOSS_CUSTOMERFUND
                     if ap_fnd_info:
                         insert_customer_fund_data(connection, ap_fnd_info, target_date)
                     else:
-                        print(f"No data ap_fnd_info found for {target_date}.")
+                        log_message(f"No data ap_fnd_info found for {target_date}.")
 
                 # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
                 elif process_type == "SEND_MPRATE":     # mp_info
@@ -183,10 +184,10 @@ def main():
 
                 # 잘못된 process_type이 입력되었을 경우
                 else:
-                    print(f"Invalid process_type: {process_type}. No process executed.")
+                    log_message(f"Invalid process_type: {process_type}. No process executed.")
 
             except Exception as e:
-                print(f"An error occurred: {e}")
+                log_message(f"An error occurred: {e}")
                 raise
 
             finally:
@@ -197,7 +198,7 @@ def main():
                     transport.close()
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":

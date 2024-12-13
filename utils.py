@@ -17,9 +17,9 @@ def delete_old_bcp_data(connection):
         WHERE LEFT(indate, 8) < FORMAT(DATEADD(MONTH, -1, GETDATE()), 'yyyyMMdd')
         """)
         connection.execute(delete_query)
-        print("Old BCP data older than 1 month deleted successfully.")
+        log_message("Old BCP data older than 1 month deleted successfully.")
     except Exception as e:
-        print(f"An error occurred while deleting old BCP data: {e}")
+        log_message(f"An error occurred while deleting old BCP data: {e}")
 
 
 def insert_fnd_list_data(connection, fnd_list, target_date):
@@ -41,7 +41,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
             ).scalar()
 
             if result > 0:
-                print(
+                log_message(
                     f"Data(fnd_list) for {target_date} already exists. Skipping insertion."
                 )
                 return
@@ -84,13 +84,13 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
                         },
                     )
                 except ValueError as ve:
-                    print(f"Data parsing error for row: {row} | Error: {ve}")
+                    log_message(f"Data parsing error for row: {row} | Error: {ve}")
                     continue
 
-            print("Data(fnd_list) inserted successfully with duplicates removed.")
+            log_message("Data(fnd_list) inserted successfully with duplicates removed.")
 
     except Exception as e:
-        print(f"An error occurred while inserting data(fnd_list): {e}")
+        log_message(f"An error occurred while inserting data(fnd_list): {e}")
 
 
 def insert_customer_account_data(connection, ap_acc_info, target_date):
@@ -112,7 +112,7 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
             ).scalar()
 
             if count > 0:
-                print(
+                log_message(
                     f"Data(ap_acc_info) for {target_date} already exists. Skipping insertion."
                 )
                 return
@@ -154,15 +154,15 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
                         },
                     )
                 except ValueError as ve:
-                    print(
+                    log_message(
                         f"Data(ap_acc_info) conversion error for row: {row} | Error: {ve}"
                     )
                     continue
 
-            print("Data(ap_acc_info) inserted successfully with duplicates removed.")
+            log_message("Data(ap_acc_info) inserted successfully with duplicates removed.")
 
     except Exception as e:
-        print(f"An error occurred while inserting data(ap_acc_info): {e}")
+        log_message(f"An error occurred while inserting data(ap_acc_info): {e}")
 
 
 def insert_customer_fund_data(connection, ap_fnd_info, target_date):
@@ -184,7 +184,7 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
             ).scalar()
 
             if count > 0:
-                print(
+                log_message(
                     f"Data(ap_fnd_info) for {target_date} already exists. Skipping insertion."
                 )
                 return
@@ -221,15 +221,15 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
                         },
                     )
                 except ValueError as ve:
-                    print(
+                    log_message(
                         f"Data(ap_fnd_info) conversion error for row: {row} | Error: {ve}"
                     )
                     continue
 
-            print("Data(ap_fnd_info) inserted successfully with duplicates removed.")
+            log_message("Data(ap_fnd_info) inserted successfully with duplicates removed.")
 
     except Exception as e:
-        print(f"An error occurred while inserting data(ap_fnd_info): {e}")
+        log_message(f"An error occurred while inserting data(ap_fnd_info): {e}")
 
 
 def process_yesterday_return_data(connection, target_date, sftp_client):
@@ -289,7 +289,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             ).scalar()
 
             if count_result_return != count_port_cd:
-                print(
+                log_message(
                     "Data mismatch between TBL_RESULT_RETURN and TBL_RESULT_MPLIST. Process stopped."
                 )
                 return  # 프로세스 중단
@@ -309,7 +309,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
 
             # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
             insert_bcpdata(connection, final_df)
-            print(
+            log_message(
                 "Data(mp_info) has been inserted into the TBL_FOSS_BCPDATA table."
             )
 
@@ -327,10 +327,10 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
 
         # SFTP 업로드
         sftp_client.put(local_path, remote_path)
-        print(f"File successfully uploaded to SFTP server: {remote_path}")
+        log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
         raise
 
     finally:
@@ -339,7 +339,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
         except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+            log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_mp_list(connection, target_date, sftp_client):
@@ -373,7 +373,7 @@ def process_mp_list(connection, target_date, sftp_client):
 
             # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
             insert_bcpdata(connection, final_df)
-            print(
+            log_message(
                 "Data(mp_fnd_info) has been inserted into the TBL_FOSS_BCPDATA table."
             )
 
@@ -391,10 +391,10 @@ def process_mp_list(connection, target_date, sftp_client):
 
         # SFTP 업로드
         sftp_client.put(local_path, remote_path)
-        print(f"File successfully uploaded to SFTP server: {remote_path}")
+        log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
         raise
 
     finally:
@@ -403,7 +403,7 @@ def process_mp_list(connection, target_date, sftp_client):
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
         except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+            log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_rebalcus(
@@ -462,7 +462,7 @@ def process_rebalcus(
 
             # TBL_FOSS_BCPDATA 테이블에 데이터 삽입
             insert_bcpdata(connection, final_rebalcus_data)
-            print(
+            log_message(
                 "Data(ap_reval_yn) has been inserted into the TBL_FOSS_BCPDATA table."
             )
 
@@ -484,10 +484,10 @@ def process_rebalcus(
 
         # SFTP 업로드
         sftp_client.put(local_path, remote_path)
-        print(f"File successfully uploaded to SFTP server: {remote_path}")
+        log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
         raise
 
     finally:
@@ -496,7 +496,7 @@ def process_rebalcus(
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
         except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+            log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_report(connection, target_date, sftp_client):
@@ -578,7 +578,7 @@ def process_report(connection, target_date, sftp_client):
                 """)
                 connection.execute(insert_query, insert_data)
 
-                print(
+                log_message(
                     f"Report data for {target_date} has been processed and inserted."
                 )
 
@@ -597,7 +597,7 @@ def process_report(connection, target_date, sftp_client):
                 with open(local_file_path, "w", encoding="utf-8") as file:
                     file.write("")  # 빈 파일 생성
                     
-                print(f"No report data found for {target_date}.")
+                log_message(f"No report data found for {target_date}.")
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
@@ -605,10 +605,10 @@ def process_report(connection, target_date, sftp_client):
 
         # SFTP 업로드
         sftp_client.put(local_path, remote_path)
-        print(f"File successfully uploaded to SFTP server: {remote_path}")
+        log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
         raise
 
     finally:
@@ -617,7 +617,7 @@ def process_report(connection, target_date, sftp_client):
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
         except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+            log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def process_mp_info_eof(target_date, sftp_client):
@@ -639,17 +639,17 @@ def process_mp_info_eof(target_date, sftp_client):
         with open(local_file_path, "w", encoding="utf-8") as file:
             file.write("")  # 빈 파일 생성
 
-        print(f"Empty EOF file created at: {local_file_path}")
+        log_message(f"Empty EOF file created at: {local_file_path}")
 
         # SFTP 경로 및 파일 설정
         remote_path = f"../robo_data/{sSetFile}"  # 원격 파일 경로
 
         # SFTP 업로드
         sftp_client.put(local_file_path, remote_path)
-        print(f"Empty EOF file successfully uploaded to SFTP server: {remote_path}")
+        log_message(f"Empty EOF file successfully uploaded to SFTP server: {remote_path}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log_message(f"An error occurred: {e}")
         raise
 
     finally:
@@ -658,7 +658,7 @@ def process_mp_info_eof(target_date, sftp_client):
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
         except Exception as e:
-            print(f"Error occurred while deleting the temporary CSV file: {e}")
+            log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
 def get_recent_business_date(target_date):
@@ -1004,7 +1004,7 @@ def update_manual_rebalancing(connection, final_rebalcus_data, manual_customer_i
                 "customer_id_prefix": f"{customer_id}%;",
             },
         )
-    print(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
+    log_message(f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}")
 
 
 def prepare_final_rebalcus_df(dataframes):
@@ -1041,3 +1041,8 @@ def insert_bcpdata(connection, final_df):
                 "lst": row["lst"],
             },
         )
+
+
+def log_message(message):
+    current_time = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    log_message(f"{current_time} {message}")
