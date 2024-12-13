@@ -102,96 +102,99 @@ def main():
         # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
         engine = get_sqlalchemy_connection(dev_db_config)
 
-        # foss_data directory 접근
-        sftp.chdir("foss_data")
+        # 엔진에서 연결 생성
+        with engine.connect() as connection:
 
-        # TODO: batch_spid, running_key
-        try:
-            files_to_read = [
-                filename for filename in sftp.listdir() if target_date in filename
-            ]  # fnd_list, ap_acc_info, ap_fnd_info
+            # foss_data directory 접근
+            sftp.chdir("foss_data")
 
-            # 파일 내용 읽기
-            file_contents = {}
-            for file_name in files_to_read:
-                key = file_name.split(".")[0]
-                with sftp.file(file_name, "r") as file_stream:
-                    content = file_stream.read().decode("utf-8")
-                    file_contents[key] = content
+            # TODO: batch_spid, running_key
+            try:
+                files_to_read = [
+                    filename for filename in sftp.listdir() if target_date in filename
+                ]  # fnd_list, ap_acc_info, ap_fnd_info
 
-            fnd_list = file_contents.get("fnd_list")  # TBL_FOSS_UNIVERSE
-            ap_acc_info = file_contents.get("ap_acc_info")  # TBL_FOSS_CUSTOMERACCOUNT
-            ap_fnd_info = file_contents.get("ap_fnd_info")  # TBL_FOSS_CUSTOMERFUND
+                # 파일 내용 읽기
+                file_contents = {}
+                for file_name in files_to_read:
+                    key = file_name.split(".")[0]
+                    with sftp.file(file_name, "r") as file_stream:
+                        content = file_stream.read().decode("utf-8")
+                        file_contents[key] = content
 
-            # ------------------ 1개월 전 데이터 삭제 (TBL_FOSS_BCPDATA) ------------------ #
-            if process_type == "DELETE_OLDDATA":
-                delete_old_bcp_data(engine)
+                fnd_list = file_contents.get("fnd_list")  # TBL_FOSS_UNIVERSE
+                ap_acc_info = file_contents.get("ap_acc_info")  # TBL_FOSS_CUSTOMERACCOUNT
+                ap_fnd_info = file_contents.get("ap_fnd_info")  # TBL_FOSS_CUSTOMERFUND
 
-            # ------------------------------ 유니버스 수신 ------------------------------- #
-            elif process_type == "RECEIVE_UNIVERSE":  # TBL_FOSS_UNIVERSE
-                if fnd_list:
-                    insert_fnd_list_data(engine, fnd_list, target_date)
+                # ------------------ 1개월 전 데이터 삭제 (TBL_FOSS_BCPDATA) ------------------ #
+                if process_type == "DELETE_OLDDATA":
+                    delete_old_bcp_data(connection)
+
+                # ------------------------------ 유니버스 수신 ------------------------------- #
+                elif process_type == "RECEIVE_UNIVERSE":  # TBL_FOSS_UNIVERSE
+                    if fnd_list:
+                        insert_fnd_list_data(connection, fnd_list, target_date)
+                    else:
+                        print(f"No data fnd_list found for {target_date}.")
+
+                # ---------------------------- 고객 계좌 정보 수신 ---------------------------- #
+                elif process_type == "RECEIVE_ACCOUNT":  # TBL_FOSS_CUSTOMERACCOUNT
+                    if ap_acc_info:
+                        insert_customer_account_data(connection, ap_acc_info, target_date)
+                    else:
+                        print(f"No data ap_acc_info found for {target_date}.")
+
+                # --------------------------- 고객 보유펀드 정보 수신 --------------------------- #
+                elif process_type == "RECEIVE_CUSTMERFND":  # TBL_FOSS_CUSTOMERFUND
+                    if ap_fnd_info:
+                        insert_customer_fund_data(connection, ap_fnd_info, target_date)
+                    else:
+                        print(f"No data ap_fnd_info found for {target_date}.")
+
+                # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
+                elif process_type == "SEND_MPRATE":     # mp_info
+                    process_yesterday_return_data(connection, target_date, sftp)
+
+                # ----------------------------- MP 리스트 송신 처리 ---------------------------- #
+                elif process_type == "SEND_MPLIST":     # mp_fnd_info
+                    process_mp_list(connection, target_date, sftp)
+
+                # --------------------------- 리밸런싱 고객자료 송신 처리 ------------------------- #
+                elif process_type == "SEND_REBALCUS":   # ap_reval_yn
+                    # 리밸런싱 송신 처리
+                    process_rebalcus(connection, target_date, sftp)
+
+                    # 강제 리밸런싱일자 설정
+                    # forced_rebal_dates = ["20231201", "20241201"]
+                    # process_rebalcus(connection, target_date, sftp, forced_rebal_dates=forced_rebal_dates)
+
+                    # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
+                    # manual_customer_ids = ["10083", "10096", "10113"]
+                    # manual_rebal_yn = "Y"
+                    # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
+
+                # ------------------------------ 리포트 송신 처리 ------------------------------- #
+                elif process_type == "SEND_REPORT":     # report
+                    process_report(connection, target_date, sftp)
+
+                # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
+                elif process_type == "SEND_MP_INFO_EOF":    # mp_info_eof
+                    process_mp_info_eof(target_date, sftp)
+
+                # 잘못된 process_type이 입력되었을 경우
                 else:
-                    print(f"No data fnd_list found for {target_date}.")
+                    print(f"Invalid process_type: {process_type}. No process executed.")
 
-            # ---------------------------- 고객 계좌 정보 수신 ---------------------------- #
-            elif process_type == "RECEIVE_ACCOUNT":  # TBL_FOSS_CUSTOMERACCOUNT
-                if ap_acc_info:
-                    insert_customer_account_data(engine, ap_acc_info, target_date)
-                else:
-                    print(f"No data ap_acc_info found for {target_date}.")
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                raise
 
-            # --------------------------- 고객 보유펀드 정보 수신 --------------------------- #
-            elif process_type == "RECEIVE_CUSTMERFND":  # TBL_FOSS_CUSTOMERFUND
-                if ap_fnd_info:
-                    insert_customer_fund_data(engine, ap_fnd_info, target_date)
-                else:
-                    print(f"No data ap_fnd_info found for {target_date}.")
-
-            # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
-            elif process_type == "SEND_MPRATE":     # mp_info
-                process_yesterday_return_data(engine, target_date, sftp)
-
-            # ----------------------------- MP 리스트 송신 처리 ---------------------------- #
-            elif process_type == "SEND_MPLIST":     # mp_fnd_info
-                process_mp_list(engine, target_date, sftp)
-
-            # --------------------------- 리밸런싱 고객자료 송신 처리 ------------------------- #
-            elif process_type == "SEND_REBALCUS":   # ap_reval_yn
-                # 리밸런싱 송신 처리
-                process_rebalcus(engine, target_date, sftp)
-
-                # 강제 리밸런싱일자 설정
-                # forced_rebal_dates = ["20231201", "20241201"]
-                # process_rebalcus(engine, target_date, sftp, forced_rebal_dates=forced_rebal_dates)
-
-                # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-                # manual_customer_ids = ["10083", "10096", "10113"]
-                # manual_rebal_yn = "Y"
-                # process_rebalcus(engine, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
-
-            # ------------------------------ 리포트 송신 처리 ------------------------------- #
-            elif process_type == "SEND_REPORT":     # report
-                process_report(engine, target_date, sftp)
-
-            # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
-            elif process_type == "SEND_MP_INFO_EOF":    # mp_info_eof
-                process_mp_info_eof(target_date, sftp)
-
-            # 잘못된 process_type이 입력되었을 경우
-            else:
-                print(f"Invalid process_type: {process_type}. No process executed.")
-
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            raise
-
-        finally:
-            # 연결 종료
-            if "sftp" in locals():
-                sftp.close()
-            if "transport" in locals():
-                transport.close()
+            finally:
+                # 연결 종료
+                if "sftp" in locals():
+                    sftp.close()
+                if "transport" in locals():
+                    transport.close()
 
     except Exception as e:
         print(f"An error occurred: {e}")
