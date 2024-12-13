@@ -1045,4 +1045,4 @@ def insert_bcpdata(connection, final_df):
 
 def log_message(message):
     current_time = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    log_message(f"{current_time} {message}")
+    print(f"{current_time} {message}")
