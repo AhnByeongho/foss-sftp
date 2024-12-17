@@ -20,9 +20,10 @@ def delete_old_bcp_data(connection):
         log_message("Old BCP data older than 1 month deleted successfully.")
     except Exception as e:
         log_message(f"An error occurred while deleting old BCP data: {e}")
+        raise
 
 
-def insert_fnd_list_data(connection, fnd_list, target_date):
+def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
     """
     Inserts data from fnd_list into TBL_FOSS_UNIVERSE after removing duplicates.
 
@@ -31,6 +32,8 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
     :param target_date: Date for which the data is being inserted
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         with connection.begin():
             # 해당 날짜 데이터 중복 여부 확인
             check_query = """
@@ -87,11 +90,52 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
             )
             log_message("Data(fnd_list) inserted successfully with duplicates removed.")
 
+            # TBL_EVENT_LOG
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_01",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset insert success      fnd_list.{target_date}",
+                result="true",
+            )
+            is_log_event_true = True
+
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="2",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success",
+            )
+            is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(fnd_list): {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_01",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset error      fnd_list.{target_date}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="2",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
+        raise
 
 
-def insert_customer_account_data(connection, ap_acc_info, target_date):
+def insert_customer_account_data(connection, ap_acc_info, target_date, start_time):
     """
     Inserts data from ap_acc_info into TBL_FOSS_CUSTOMERACCOUNT after removing duplicates.
 
@@ -100,6 +144,8 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
     :param target_date: Date for which the data is being inserted
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         with connection.begin():
             # 중복 데이터 확인
             check_query = """
@@ -158,11 +204,52 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
                 "Data(ap_acc_info) inserted successfully with duplicates removed."
             )
 
+            # TBL_EVENT_LOG
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_02",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset insert success      ap_acc_info.{target_date}",
+                result="true",
+            )
+            is_log_event_true = True
+
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="3",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success",
+            )
+            is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_acc_info): {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_02",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset error      ap_acc_info.{target_date}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="3",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
+        raise
 
 
-def insert_customer_fund_data(connection, ap_fnd_info, target_date):
+def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
     """
     Inserts data from ap_fnd_info into TBL_FOSS_CUSTOMERFUND after removing duplicates.
 
@@ -171,6 +258,8 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
     :param target_date: Date for which the data is being inserted
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         with connection.begin():
             # 중복 데이터 확인
             check_query = """
@@ -223,11 +312,52 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
                 "Data(ap_fnd_info) inserted successfully with duplicates removed."
             )
 
+            # TBL_EVENT_LOG
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_03",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset insert success      ap_fnd_info.{target_date}",
+                result="true",
+            )
+            is_log_event_true = True
+
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="4",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success",
+            )
+            is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_fnd_info): {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_03",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"openrowset error      ap_fnd_info.{target_date}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="4",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
+        raise
 
 
-def process_yesterday_return_data(connection, target_date, sftp_client):
+def process_yesterday_return_data(connection, target_date, sftp_client, start_time):
     """
     Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
@@ -243,6 +373,8 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
     :param sftp_client: SFTP client for file operations
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         # 현재 날짜와 기준 날짜 설정
         if not target_date:
             target_date = datetime.now().strftime("%Y%m%d")
@@ -324,8 +456,48 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
         sftp_client.put(local_path, remote_path)
         log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
+        # TBL_EVENT_LOG
+        log_event(
+            connection,
+            event_type="BATCH_FOSS_04",
+            call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+            message=f"bcp create success      {sSetFile}",
+            result="true",
+        )
+        is_log_event_true = True
+
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="21",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success",
+        )
+        is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_04",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"bcp create failed      {sSetFile}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="21",
+                running_key=f"{target_date}081000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
         raise
 
     finally:
@@ -337,7 +509,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_list(connection, target_date, sftp_client):
+def process_mp_list(connection, target_date, sftp_client, start_time):
     """
     Processes the MP List data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
     and uploads the file to the SFTP server.
@@ -353,6 +525,8 @@ def process_mp_list(connection, target_date, sftp_client):
     :param sftp_client: Configured SFTP client for file transmission.
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         # 파일 이름 설정
         sSetFile = f"mp_fnd_info.{target_date}"
 
@@ -386,8 +560,48 @@ def process_mp_list(connection, target_date, sftp_client):
         sftp_client.put(local_path, remote_path)
         log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
+        # TBL_EVENT_LOG
+        log_event(
+            connection,
+            event_type="BATCH_FOSS_05",
+            call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+            message=f"bcp create success      {sSetFile}",
+            result="true",
+        )
+        is_log_event_true = True
+
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="19",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success",
+        )
+        is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_05",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"bcp create failed      {sSetFile}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="19",
+                running_key=f"{target_date}081000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
         raise
 
     finally:
@@ -403,6 +617,7 @@ def process_rebalcus(
     connection,
     target_date,
     sftp_client,
+    start_time,
     manual_customer_ids=None,
     manual_rebal_yn=None,
     forced_rebal_dates=None,
@@ -426,6 +641,8 @@ def process_rebalcus(
     :param manual_rebal_yn: (Optional) Manual rebalancing signal ('Y' or 'N') for specified customers.
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         # 파일 이름 설정
         sSetFile = f"ap_reval_yn.{target_date}"
 
@@ -496,8 +713,48 @@ def process_rebalcus(
         sftp_client.put(local_path, remote_path)
         log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
+        # TBL_EVENT_LOG
+        log_event(
+            connection,
+            event_type="BATCH_FOSS_06",
+            call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+            message=f"bcp create success      {sSetFile}",
+            result="true",
+        )
+        is_log_event_true = True
+
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="22",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success",
+        )
+        is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_06",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"bcp create failed      {sSetFile}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="22",
+                running_key=f"{target_date}081000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
         raise
 
     finally:
@@ -509,7 +766,7 @@ def process_rebalcus(
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_report(connection, target_date, sftp_client):
+def process_report(connection, target_date, sftp_client, start_time):
     """
     Processes report data for the specified target date, generates a CSV file,
     inserts the data into the TBL_FOSS_BCPDATA table, and uploads the file to the SFTP server.
@@ -526,6 +783,8 @@ def process_report(connection, target_date, sftp_client):
     :param sftp_client: Configured SFTP client for file transmission.
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         # 파일 이름 설정
         sSetFile = f"report.{target_date}"
 
@@ -612,8 +871,48 @@ def process_report(connection, target_date, sftp_client):
         sftp_client.put(local_path, remote_path)
         log_message(f"File successfully uploaded to SFTP server: {remote_path}")
 
+        # TBL_EVENT_LOG
+        log_event(
+            connection,
+            event_type="BATCH_FOSS_07",
+            call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+            message=f"bcp create success      {sSetFile}",
+            result="true",
+        )
+        is_log_event_true = True
+
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="20",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success",
+        )
+        is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_07",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"bcp create failed      {sSetFile}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="20",
+                running_key=f"{target_date}081000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
         raise
 
     finally:
@@ -625,7 +924,7 @@ def process_report(connection, target_date, sftp_client):
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_info_eof(target_date, sftp_client):
+def process_mp_info_eof(connection, target_date, sftp_client, start_time):
     """
     Generates an EOF (End of File) for mp_info and uploads it to the SFTP server.
 
@@ -636,6 +935,8 @@ def process_mp_info_eof(target_date, sftp_client):
     :param sftp_client: Configured SFTP client for file transmission.
     """
     try:
+        is_log_event_true = False
+        is_log_batch_processing_true = False
         # 파일 이름 설정
         sSetFile = f"mp_info_eof.{target_date}"
         local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
@@ -655,8 +956,48 @@ def process_mp_info_eof(target_date, sftp_client):
             f"Empty EOF file successfully uploaded to SFTP server: {remote_path}"
         )
 
+        # TBL_EVENT_LOG
+        log_event(
+            connection,
+            event_type="BATCH_FOSS_08",
+            call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+            message=f"bcp create success      {sSetFile}",
+            result="true",
+        )
+        is_log_event_true = True
+
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="23",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success",
+        )
+        is_log_batch_processing_true = True
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
+        if not is_log_event_true:
+            log_event(
+                connection,
+                event_type="BATCH_FOSS_08",
+                call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
+                message=f"bcp create failed      {sSetFile}",
+                result="false",
+            )
+        if not is_log_batch_processing_true:
+            log_batch_processing(
+                connection=connection,
+                batch_spid="23",
+                running_key=f"{target_date}081000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 실패",
+                result="failed",
+            )
         raise
 
     finally:
@@ -1100,3 +1441,52 @@ def insert_bcpdata(connection, final_df):
 def log_message(message):
     current_time = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
     print(f"{current_time} {message}")
+
+
+def log_event(connection, event_type, call_pgm_name, message, result):
+    dt_now = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+    row_number = 1
+    eventdate = f"{dt_now}{str(row_number + 1000)[-3:]}"
+
+    log_df = pd.DataFrame(
+        [
+            {
+                "eventdate": eventdate,
+                "eventtype": event_type,
+                "call_pgm_name": call_pgm_name,
+                "message": message,
+                "result": result,
+            }
+        ]
+    )
+
+    log_df.to_sql(name="TBL_EVENT_LOG", con=connection, if_exists="append", index=False)
+
+
+def log_batch_processing(
+    connection,
+    batch_spid,
+    running_key,
+    start_time,
+    end_time,
+    message,
+    result,
+    param_values="",
+):
+    log_batch_df = pd.DataFrame(
+        [
+            {
+                "batchspid": batch_spid,
+                "runningkey": running_key,
+                "starttime": start_time,
+                "endtime": end_time,
+                "paramvalues": param_values,
+                "returnmsg": message,
+                "returnresult": result,
+            }
+        ]
+    )
+
+    log_batch_df.to_sql(
+        name="TBL_BATCH_PROCESSING_LOG", con=connection, if_exists="append", index=False
+    )
