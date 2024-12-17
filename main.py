@@ -1,6 +1,7 @@
 import argparse
 import paramiko
 from sqlalchemy import create_engine
+from datetime import datetime
 
 from utils import (
     delete_old_bcp_data,
@@ -108,7 +109,6 @@ def main():
             # foss_data directory 접근
             sftp.chdir("foss_data")
 
-            # TODO: batch_spid, running_key
             try:
                 files_to_read = [
                     filename for filename in sftp.listdir() if target_date in filename
@@ -135,15 +135,23 @@ def main():
                 # ------------------------------ 유니버스 수신 ------------------------------- #
                 elif process_type == "RECEIVE_UNIVERSE":  # TBL_FOSS_UNIVERSE
                     if fnd_list:
-                        insert_fnd_list_data(connection, fnd_list, target_date)
+                        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[
+                            :-3
+                        ]
+                        insert_fnd_list_data(
+                            connection, fnd_list, target_date, start_time
+                        )
                     else:
                         log_message(f"No data fnd_list found for {target_date}.")
 
                 # ---------------------------- 고객 계좌 정보 수신 ---------------------------- #
                 elif process_type == "RECEIVE_ACCOUNT":  # TBL_FOSS_CUSTOMERACCOUNT
                     if ap_acc_info:
+                        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[
+                            :-3
+                        ]
                         insert_customer_account_data(
-                            connection, ap_acc_info, target_date
+                            connection, ap_acc_info, target_date, start_time
                         )
                     else:
                         log_message(f"No data ap_acc_info found for {target_date}.")
@@ -151,39 +159,54 @@ def main():
                 # --------------------------- 고객 보유펀드 정보 수신 --------------------------- #
                 elif process_type == "RECEIVE_CUSTMERFND":  # TBL_FOSS_CUSTOMERFUND
                     if ap_fnd_info:
-                        insert_customer_fund_data(connection, ap_fnd_info, target_date)
+                        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[
+                            :-3
+                        ]
+                        insert_customer_fund_data(
+                            connection, ap_fnd_info, target_date, start_time
+                        )
                     else:
                         log_message(f"No data ap_fnd_info found for {target_date}.")
 
                 # ----------- 전일 수익률 송신 처리(최근 영업일에 수익률 자료가 있을때만 생성) ------------ #
                 elif process_type == "SEND_MPRATE":  # mp_info
-                    process_yesterday_return_data(connection, target_date, sftp)
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    process_yesterday_return_data(
+                        connection, target_date, sftp, start_time
+                    )
 
                 # ----------------------------- MP 리스트 송신 처리 ---------------------------- #
                 elif process_type == "SEND_MPLIST":  # mp_fnd_info
-                    process_mp_list(connection, target_date, sftp)
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    process_mp_list(connection, target_date, sftp, start_time)
 
                 # --------------------------- 리밸런싱 고객자료 송신 처리 ------------------------- #
                 elif process_type == "SEND_REBALCUS":  # ap_reval_yn
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
                     # 리밸런싱 송신 처리
-                    process_rebalcus(connection, target_date, sftp)
+                    process_rebalcus(
+                        connection, target_date, sftp, start_time=start_time
+                    )
 
                     # 강제 리밸런싱일자 설정
                     # forced_rebal_dates = ["20231201", "20241201"]
-                    # process_rebalcus(connection, target_date, sftp, forced_rebal_dates=forced_rebal_dates)
+                    # process_rebalcus(connection, target_date, sftp, forced_rebal_dates=forced_rebal_dates, start_time=start_time)
 
                     # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
                     # manual_customer_ids = ["10083", "10096", "10113"]
                     # manual_rebal_yn = "Y"
-                    # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn)
+                    # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn, start_time=start_time)
 
                 # ------------------------------ 리포트 송신 처리 ------------------------------- #
                 elif process_type == "SEND_REPORT":  # report
-                    process_report(connection, target_date, sftp)
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    process_report(connection, target_date, sftp, start_time)
 
                 # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
                 elif process_type == "SEND_MP_INFO_EOF":  # mp_info_eof
-                    process_mp_info_eof(target_date, sftp)
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    process_mp_info_eof(connection, target_date, sftp, start_time)
 
                 # 잘못된 process_type이 입력되었을 경우
                 else:
