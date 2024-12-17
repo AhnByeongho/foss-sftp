@@ -96,7 +96,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
                 event_type="BATCH_FOSS_01",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset insert success      fnd_list.{target_date}",
-                result="true"
+                result="true",
             )
             is_log_event_true = True
 
@@ -108,7 +108,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 성공",
-                result="success"
+                result="success",
             )
             is_log_batch_processing_true = True
 
@@ -120,7 +120,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
                 event_type="BATCH_FOSS_01",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset error      fnd_list.{target_date}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -130,7 +130,7 @@ def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -210,7 +210,7 @@ def insert_customer_account_data(connection, ap_acc_info, target_date, start_tim
                 event_type="BATCH_FOSS_02",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset insert success      ap_acc_info.{target_date}",
-                result="true"
+                result="true",
             )
             is_log_event_true = True
 
@@ -222,7 +222,7 @@ def insert_customer_account_data(connection, ap_acc_info, target_date, start_tim
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 성공",
-                result="success"
+                result="success",
             )
             is_log_batch_processing_true = True
 
@@ -234,7 +234,7 @@ def insert_customer_account_data(connection, ap_acc_info, target_date, start_tim
                 event_type="BATCH_FOSS_02",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset error      ap_acc_info.{target_date}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -244,7 +244,7 @@ def insert_customer_account_data(connection, ap_acc_info, target_date, start_tim
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -318,7 +318,7 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
                 event_type="BATCH_FOSS_03",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset insert success      ap_fnd_info.{target_date}",
-                result="true"
+                result="true",
             )
             is_log_event_true = True
 
@@ -330,7 +330,7 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 성공",
-                result="success"
+                result="success",
             )
             is_log_batch_processing_true = True
 
@@ -342,7 +342,7 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
                 event_type="BATCH_FOSS_03",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"openrowset error      ap_fnd_info.{target_date}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -352,7 +352,7 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -462,7 +462,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
             event_type="BATCH_FOSS_04",
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create success      {sSetFile}",
-            result="true"
+            result="true",
         )
         is_log_event_true = True
 
@@ -474,7 +474,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
             start_time=start_time,
             end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             message="데이터 처리 성공",
-            result="success"
+            result="success",
         )
         is_log_batch_processing_true = True
 
@@ -486,7 +486,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
                 event_type="BATCH_FOSS_04",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"bcp create failed      {sSetFile}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -496,7 +496,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -566,7 +566,7 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
             event_type="BATCH_FOSS_05",
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create success      {sSetFile}",
-            result="true"
+            result="true",
         )
         is_log_event_true = True
 
@@ -578,7 +578,7 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
             start_time=start_time,
             end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             message="데이터 처리 성공",
-            result="success"
+            result="success",
         )
         is_log_batch_processing_true = True
 
@@ -590,7 +590,7 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
                 event_type="BATCH_FOSS_05",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"bcp create failed      {sSetFile}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -600,7 +600,7 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -719,7 +719,7 @@ def process_rebalcus(
             event_type="BATCH_FOSS_06",
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create success      {sSetFile}",
-            result="true"
+            result="true",
         )
         is_log_event_true = True
 
@@ -731,7 +731,7 @@ def process_rebalcus(
             start_time=start_time,
             end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             message="데이터 처리 성공",
-            result="success"
+            result="success",
         )
         is_log_batch_processing_true = True
 
@@ -743,7 +743,7 @@ def process_rebalcus(
                 event_type="BATCH_FOSS_06",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"bcp create failed      {sSetFile}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -753,7 +753,7 @@ def process_rebalcus(
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -877,7 +877,7 @@ def process_report(connection, target_date, sftp_client, start_time):
             event_type="BATCH_FOSS_07",
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create success      {sSetFile}",
-            result="true"
+            result="true",
         )
         is_log_event_true = True
 
@@ -889,7 +889,7 @@ def process_report(connection, target_date, sftp_client, start_time):
             start_time=start_time,
             end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             message="데이터 처리 성공",
-            result="success"
+            result="success",
         )
         is_log_batch_processing_true = True
 
@@ -901,7 +901,7 @@ def process_report(connection, target_date, sftp_client, start_time):
                 event_type="BATCH_FOSS_07",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"bcp create failed      {sSetFile}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -911,7 +911,7 @@ def process_report(connection, target_date, sftp_client, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -962,7 +962,7 @@ def process_mp_info_eof(connection, target_date, sftp_client, start_time):
             event_type="BATCH_FOSS_08",
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create success      {sSetFile}",
-            result="true"
+            result="true",
         )
         is_log_event_true = True
 
@@ -974,7 +974,7 @@ def process_mp_info_eof(connection, target_date, sftp_client, start_time):
             start_time=start_time,
             end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             message="데이터 처리 성공",
-            result="success"
+            result="success",
         )
         is_log_batch_processing_true = True
 
@@ -986,7 +986,7 @@ def process_mp_info_eof(connection, target_date, sftp_client, start_time):
                 event_type="BATCH_FOSS_08",
                 call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
                 message=f"bcp create failed      {sSetFile}",
-                result="false"
+                result="false",
             )
         if not is_log_batch_processing_true:
             log_batch_processing(
@@ -996,7 +996,7 @@ def process_mp_info_eof(connection, target_date, sftp_client, start_time):
                 start_time=start_time,
                 end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                 message="데이터 처리 실패",
-                result="failed"
+                result="failed",
             )
         raise
 
@@ -1448,36 +1448,45 @@ def log_event(connection, event_type, call_pgm_name, message, result):
     row_number = 1
     eventdate = f"{dt_now}{str(row_number + 1000)[-3:]}"
 
-    log_df = pd.DataFrame([{
-        "eventdate": eventdate,
-        "eventtype": event_type,
-        "call_pgm_name": call_pgm_name,
-        "message": message,
-        "result": result
-    }])
-
-    log_df.to_sql(
-        name="TBL_EVENT_LOG",
-        con=connection,
-        if_exists="append",
-        index=False
+    log_df = pd.DataFrame(
+        [
+            {
+                "eventdate": eventdate,
+                "eventtype": event_type,
+                "call_pgm_name": call_pgm_name,
+                "message": message,
+                "result": result,
+            }
+        ]
     )
 
+    log_df.to_sql(name="TBL_EVENT_LOG", con=connection, if_exists="append", index=False)
 
-def log_batch_processing(connection, batch_spid, running_key, start_time, end_time, message, result, param_values=""):
-    log_batch_df = pd.DataFrame([{
-        "batchspid": batch_spid,
-        "runningkey": running_key,
-        "starttime": start_time,
-        "endtime": end_time,
-        "paramvalues": param_values,
-        "returnmsg": message,
-        "returnresult": result
-    }])
+
+def log_batch_processing(
+    connection,
+    batch_spid,
+    running_key,
+    start_time,
+    end_time,
+    message,
+    result,
+    param_values="",
+):
+    log_batch_df = pd.DataFrame(
+        [
+            {
+                "batchspid": batch_spid,
+                "runningkey": running_key,
+                "starttime": start_time,
+                "endtime": end_time,
+                "paramvalues": param_values,
+                "returnmsg": message,
+                "returnresult": result,
+            }
+        ]
+    )
 
     log_batch_df.to_sql(
-        name="TBL_BATCH_PROCESSING_LOG",
-        con=connection,
-        if_exists="append",
-        index=False
+        name="TBL_BATCH_PROCESSING_LOG", con=connection, if_exists="append", index=False
     )
