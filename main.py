@@ -183,7 +183,7 @@ def main():
 
                 # ------------------------- MP_INFO_EOF 빈파일 송신 처리 ------------------------ #
                 elif process_type == "SEND_MP_INFO_EOF":  # mp_info_eof
-                    process_mp_info_eof(target_date, sftp)
+                    process_mp_info_eof(connection, target_date, sftp)
 
                 # 잘못된 process_type이 입력되었을 경우
                 else:
