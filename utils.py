@@ -23,7 +23,7 @@ def delete_old_bcp_data(connection):
         raise
 
 
-def insert_fnd_list_data(connection, fnd_list, target_date):
+def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
     """
     Inserts data from fnd_list into TBL_FOSS_UNIVERSE after removing duplicates.
 
@@ -97,6 +97,17 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
                 result="true"
             )
 
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="2",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success"
+            )
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(fnd_list): {e}")
         log_event(
@@ -106,10 +117,19 @@ def insert_fnd_list_data(connection, fnd_list, target_date):
             message=f"openrowset error      fnd_list.{target_date}",
             result="false"
         )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="2",
+            running_key=f"{target_date}073000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
+        )
         raise
 
 
-def insert_customer_account_data(connection, ap_acc_info, target_date):
+def insert_customer_account_data(connection, ap_acc_info, target_date, start_time):
     """
     Inserts data from ap_acc_info into TBL_FOSS_CUSTOMERACCOUNT after removing duplicates.
 
@@ -185,6 +205,17 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
                 result="true"
             )
 
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="3",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success"
+            )
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_acc_info): {e}")
         log_event(
@@ -194,10 +225,19 @@ def insert_customer_account_data(connection, ap_acc_info, target_date):
             message=f"openrowset error      ap_acc_info.{target_date}",
             result="false"
         )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="3",
+            running_key=f"{target_date}073000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
+        )
         raise
 
 
-def insert_customer_fund_data(connection, ap_fnd_info, target_date):
+def insert_customer_fund_data(connection, ap_fnd_info, target_date, start_time):
     """
     Inserts data from ap_fnd_info into TBL_FOSS_CUSTOMERFUND after removing duplicates.
 
@@ -267,6 +307,17 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
                 result="true"
             )
 
+            # TBL_BATCH_PROCESSING_LOG
+            log_batch_processing(
+                connection=connection,
+                batch_spid="4",
+                running_key=f"{target_date}073000",
+                start_time=start_time,
+                end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                message="데이터 처리 성공",
+                result="success"
+            )
+
     except Exception as e:
         log_message(f"An error occurred while inserting data(ap_fnd_info): {e}")
         log_event(
@@ -276,10 +327,19 @@ def insert_customer_fund_data(connection, ap_fnd_info, target_date):
             message=f"openrowset error      ap_fnd_info.{target_date}",
             result="false"
         )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="4",
+            running_key=f"{target_date}073000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
+        )
         raise
 
 
-def process_yesterday_return_data(connection, target_date, sftp_client):
+def process_yesterday_return_data(connection, target_date, sftp_client, start_time):
     """
     Processes yesterday's return data and validates before proceeding with SFTP transmission.
 
@@ -385,6 +445,17 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             result="true"
         )
 
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="21",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success"
+        )
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
         log_event(
@@ -393,6 +464,15 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create failed      {sSetFile}",
             result="false"
+        )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="21",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
         )
         raise
 
@@ -405,7 +485,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client):
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_list(connection, target_date, sftp_client):
+def process_mp_list(connection, target_date, sftp_client, start_time):
     """
     Processes the MP List data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
     and uploads the file to the SFTP server.
@@ -463,6 +543,17 @@ def process_mp_list(connection, target_date, sftp_client):
             result="true"
         )
 
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="19",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success"
+        )
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
         log_event(
@@ -471,6 +562,15 @@ def process_mp_list(connection, target_date, sftp_client):
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create failed      {sSetFile}",
             result="false"
+        )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="19",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
         )
         raise
 
@@ -487,6 +587,7 @@ def process_rebalcus(
     connection,
     target_date,
     sftp_client,
+    start_time,
     manual_customer_ids=None,
     manual_rebal_yn=None,
     forced_rebal_dates=None,
@@ -589,6 +690,17 @@ def process_rebalcus(
             result="true"
         )
 
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="22",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success"
+        )
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
         log_event(
@@ -597,6 +709,15 @@ def process_rebalcus(
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create failed      {sSetFile}",
             result="false"
+        )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="22",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
         )
         raise
 
@@ -609,7 +730,7 @@ def process_rebalcus(
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_report(connection, target_date, sftp_client):
+def process_report(connection, target_date, sftp_client, start_time):
     """
     Processes report data for the specified target date, generates a CSV file,
     inserts the data into the TBL_FOSS_BCPDATA table, and uploads the file to the SFTP server.
@@ -721,6 +842,17 @@ def process_report(connection, target_date, sftp_client):
             result="true"
         )
 
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="20",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success"
+        )
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
         log_event(
@@ -729,6 +861,15 @@ def process_report(connection, target_date, sftp_client):
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create failed      {sSetFile}",
             result="false"
+        )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="20",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
         )
         raise
 
@@ -741,7 +882,7 @@ def process_report(connection, target_date, sftp_client):
             log_message(f"Error occurred while deleting the temporary CSV file: {e}")
 
 
-def process_mp_info_eof(connection, target_date, sftp_client):
+def process_mp_info_eof(connection, target_date, sftp_client, start_time):
     """
     Generates an EOF (End of File) for mp_info and uploads it to the SFTP server.
 
@@ -780,6 +921,17 @@ def process_mp_info_eof(connection, target_date, sftp_client):
             result="true"
         )
 
+        # TBL_BATCH_PROCESSING_LOG
+        log_batch_processing(
+            connection=connection,
+            batch_spid="23",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 성공",
+            result="success"
+        )
+
     except Exception as e:
         log_message(f"An error occurred: {e}")
         log_event(
@@ -788,6 +940,15 @@ def process_mp_info_eof(connection, target_date, sftp_client):
             call_pgm_name="MS-SQL SP : SP_BATCH_FEED_FOSSEXCEPTION",
             message=f"bcp create failed      {sSetFile}",
             result="false"
+        )
+        log_batch_processing(
+            connection=connection,
+            batch_spid="23",
+            running_key=f"{target_date}081000",
+            start_time=start_time,
+            end_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            message="데이터 처리 실패",
+            result="failed"
         )
         raise
 
@@ -1253,4 +1414,22 @@ def log_event(connection, event_type, call_pgm_name, message, result):
         if_exists="append",
         index=False
     )
-    
+
+
+def log_batch_processing(connection, batch_spid, running_key, start_time, end_time, message, result, param_values=""):
+    log_batch_df = pd.DataFrame([{
+        "batchspid": batch_spid,
+        "runningkey": running_key,
+        "starttime": start_time,
+        "endtime": end_time,
+        "paramvalues": param_values,
+        "returnmsg": message,
+        "returnresult": result
+    }])
+
+    log_batch_df.to_sql(
+        name="TBL_BATCH_PROCESSING_LOG",
+        con=connection,
+        if_exists="append",
+        index=False
+    )
