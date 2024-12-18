@@ -1,0 +1,36 @@
+{
+    "sftp": {
+        "foss": {
+            "host": "106.10.52.176",
+            "port": 2020,
+            "user": "foss",
+            "password": "qBi-nav_2)0$"
+        },
+        "fossDev": {
+            "host": "106.10.52.176",
+            "port": 2020,
+            "user": "fossDev",
+            "password": "qBi-nav-dev_2)0$"
+        }
+    },
+    "databases": {
+        "prod": {
+            "server": "192.168.5.239",
+            "database": "QBIS_RAB",
+            "username": "qbrab",
+            "password": "znjxjqorrab11!!"
+        },
+        "dev": {
+            "server": "192.168.5.239",
+            "database": "QBIS_RAB_DEV",
+            "username": "qbrabdev",
+            "password": "znjxjqorrabdev11!!"
+        },
+        "test": {
+            "server": "192.168.5.239",
+            "database": "QBIS_RAB_TEST",
+            "username": "qbrabtest",
+            "password": "znjxjqorrabtest11!!"
+        }
+    }
+}
