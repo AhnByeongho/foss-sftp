@@ -1,11 +1,14 @@
 import argparse
 import paramiko
+import json
+import os
 from sqlalchemy import create_engine
 from datetime import datetime
 
 from utils import (
     delete_old_bcp_data,
     insert_fnd_list_data,
+    insert_fnd_list_data_to_qbt_api,
     insert_customer_account_data,
     insert_customer_fund_data,
     process_yesterday_return_data,
@@ -16,71 +19,41 @@ from utils import (
     log_message,
 )
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(current_dir, "config.json")
 
-# sftp 연결 정보
-fossDev_sftp_config = {
-    "host": "106.10.52.176",
-    "port": 2020,
-    "user": "fossDev",
-    "password": "qBi-nav-dev_2)0$",
-}
-
-foss_sftp_config = {
-    "host": "106.10.52.176",
-    "port": 2020,
-    "user": "foss",
-    "password": "qBi-nav_2)0$",
-}
-
-
-# MSSQL 연결 정보
-local_db_config = {
-    "server": "localhost",
-    "database": "QBIS_RAB_LOCAL",
-    "username": "SA",
-    "password": "3170118A!",
-}
-
-test_db_config = {
-    "server": "192.168.5.239",
-    "database": "QBIS_RAB_TEST",
-    "username": "qbrabtest",
-    "password": "znjxjqorrabtest11!!",
-}
-
-dev_db_config = {
-    "server": "192.168.5.239",
-    "database": "QBIS_RAB_DEV",
-    "username": "qbrabdev",
-    "password": "znjxjqorrabdev11!!",
-}
-
-db_config = {
-    "server": "192.168.5.239",
-    "database": "QBIS_RAB",
-    "username": "qbrab",
-    "password": "znjxjqorrab11!!",
-}
+# sftp & DB config.json
+with open(config_path, "r") as config_file:
+    config = json.load(config_file)
 
 
 # TODO: 운영에 batch 돌릴 때는 수정해야함
 def get_sftp_connection(process_type):
     if process_type in ["RECEIVE_UNIVERSE", "RECEIVE_ACCOUNT", "RECEIVE_CUSTMERFND"]:
-        config = foss_sftp_config
+        sftp_config = config["sftp"]["foss"]
     else:
-        config = fossDev_sftp_config
+        sftp_config = config["sftp"]["fossDev"]
 
-    transport = paramiko.Transport((config["host"], config["port"]))
-    transport.connect(username=config["user"], password=config["password"])
+    transport = paramiko.Transport((sftp_config["host"], sftp_config["port"]))
+    transport.connect(username=sftp_config["user"], password=sftp_config["password"])
     sftp = paramiko.SFTPClient.from_transport(transport)
     return sftp, transport
 
 
-def get_sqlalchemy_connection(db_config):
-    connection_url = (
-        f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
-        f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
-    )
+def get_sqlalchemy_connection(env):
+    db_config = config["databases"][env]
+    # MariaDB
+    if env.startswith("qbt_api"):
+        connection_url = (
+            f"mysql+pymysql://{db_config['username']}:{db_config['password']}@"
+            f"{db_config['server']}/{db_config['database']}"
+        )
+    # MS SQL Server
+    else:
+        connection_url = (
+            f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
+            f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
+        )
     return create_engine(connection_url)
 
 
@@ -102,7 +75,8 @@ def main():
         sftp, transport = get_sftp_connection(process_type)
 
         # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
-        engine = get_sqlalchemy_connection(dev_db_config)
+        engine = get_sqlalchemy_connection(env="dev")
+        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_test")
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
@@ -141,6 +115,10 @@ def main():
                         insert_fnd_list_data(
                             connection, fnd_list, target_date, start_time
                         )
+                        with engine_qbt_api.connect() as connection_qbt_api:
+                            insert_fnd_list_data_to_qbt_api(
+                                connection, connection_qbt_api, target_date
+                            )
                     else:
                         log_message(f"No data fnd_list found for {target_date}.")
 
