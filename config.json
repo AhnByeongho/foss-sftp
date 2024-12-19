@@ -31,6 +31,18 @@
             "database": "QBIS_RAB_TEST",
             "username": "qbrabtest",
             "password": "znjxjqorrabtest11!!"
+        },
+        "qbt_api": {
+            "server": "222.239.254.133",
+            "database": "QBT_API",
+            "username": "qbapi",
+            "password": "znjxjqor11!!"
+        },
+        "qbt_api_test": {
+            "server": "192.168.5.235",
+            "database": "QBT_API_TEST",
+            "username": "qbapitest",
+            "password": "znjxjqor11!!"
         }
     }
 }

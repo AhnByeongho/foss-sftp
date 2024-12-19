@@ -8,6 +8,7 @@ from datetime import datetime
 from utils import (
     delete_old_bcp_data,
     insert_fnd_list_data,
+    insert_fnd_list_data_to_qbt_api,
     insert_customer_account_data,
     insert_customer_fund_data,
     process_yesterday_return_data,
@@ -40,10 +41,18 @@ def get_sftp_connection(process_type):
 
 def get_sqlalchemy_connection(env):
     db_config = config["databases"][env]
-    connection_url = (
-        f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
-        f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
-    )
+    # MariaDB
+    if env.startswith("qbt_api"):
+        connection_url = (
+            f"mysql+pymysql://{db_config['username']}:{db_config['password']}@"
+            f"{db_config['server']}/{db_config['database']}"
+        )
+    # MS SQL Server
+    else: 
+        connection_url = (
+            f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
+            f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
+        )
     return create_engine(connection_url)
 
 
@@ -66,6 +75,7 @@ def main():
 
         # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
         engine = get_sqlalchemy_connection(env="dev")
+        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_test")
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
@@ -104,6 +114,8 @@ def main():
                         insert_fnd_list_data(
                             connection, fnd_list, target_date, start_time
                         )
+                        with engine_qbt_api.connect() as connection_qbt_api:
+                            insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date)
                     else:
                         log_message(f"No data fnd_list found for {target_date}.")
 

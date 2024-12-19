@@ -135,6 +135,75 @@ def insert_fnd_list_data(connection, fnd_list, target_date, start_time):
         raise
 
 
+def insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date):
+    with connection_qbt_api.begin():
+        # TBL_REST_UNIVERSE_RECEIVE
+        check_query_1 = text("""
+            SELECT COUNT(*) AS cnt
+            FROM TBL_REST_UNIVERSE_RECEIVE
+            WHERE auth_id = :auth_id AND trddate = :trddate
+        """)
+        result_1 = connection_qbt_api.execute(check_query_1, {"auth_id": "foss", "trddate": target_date}).scalar()
+
+        if result_1 == 0:
+            query_1 = text("""
+                SELECT
+                    trddate,
+                    GETDATE() AS receive_time,
+                    fund_cd AS prd_cd,
+                    CASE investgb
+                        WHEN '77' THEN 'f12'
+                        WHEN '61' THEN 'f11'
+                    END AS prd_gb,
+                    Null AS peer_cd,
+                    RTRIM(LTRIM(risk_grade)) AS risk_grade,
+                    Null AS price,
+                    Null AS incm_rate,
+                    tradeyn
+                FROM TBL_FOSS_UNIVERSE
+                WHERE trddate = :target_date AND investgb IN ('77', '61')
+            """)
+            df_1 = pd.read_sql(query_1, connection, params={"target_date": target_date})
+            df_1.insert(0, "auth_id", "foss")
+
+            df_1.to_sql(
+                name="TBL_REST_UNIVERSE_RECEIVE",
+                con=connection_qbt_api,
+                if_exists="append",
+                index=False,
+            )
+            log_message("Data successfully inserted into the table TBL_REST_UNIVERSE_RECEIVE.")
+        
+        else:
+            log_message("Data already exists in the table TBL_REST_UNIVERSE_RECEIVE.")
+        
+        # TBL_REST_UNIVERSE_FOSS
+        check_query_2 = text("""
+            SELECT COUNT(*) AS cnt
+            FROM TBL_REST_UNIVERSE_FOSS
+            WHERE trddate = :trddate
+        """)
+        result_2 = connection_qbt_api.execute(check_query_2, {"trddate": target_date}).scalar()
+
+        if result_2 == 0:
+            query_2 = text("""
+                SELECT * FROM TBL_FOSS_UNIVERSE
+                WHERE trddate = :target_date
+            """)
+            df_2 = pd.read_sql(query_2, connection, params={"target_date": target_date})
+
+            df_2.to_sql(
+                name="TBL_REST_UNIVERSE_FOSS",
+                con=connection_qbt_api,
+                if_exists="append",
+                index=False,
+            )
+            log_message("Data successfully inserted into the table TBL_REST_UNIVERSE_FOSS.")
+        
+        else:
+            log_message("Data already exists in the table TBL_REST_UNIVERSE_FOSS.")
+
+
 def insert_customer_account_data(connection, ap_acc_info, target_date, start_time):
     """
     Inserts data from ap_acc_info into TBL_FOSS_CUSTOMERACCOUNT after removing duplicates.
