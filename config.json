@@ -38,6 +38,12 @@
             "username": "qbapi",
             "password": "znjxjqor11!!"
         },
+        "qbt_api_dev":{
+            "server": "192.168.5.235",
+            "database": "QBT_API_DEV",
+            "username": "qbapidev",
+            "password": "znjxjqor11!!"
+        },
         "qbt_api_test": {
             "server": "192.168.5.235",
             "database": "QBT_API_TEST",
