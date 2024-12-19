@@ -26,6 +26,7 @@ config_path = os.path.join(current_dir, "config.json")
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
+
 # TODO: 운영에 batch 돌릴 때는 수정해야함
 def get_sftp_connection(process_type):
     if process_type in ["RECEIVE_UNIVERSE", "RECEIVE_ACCOUNT", "RECEIVE_CUSTMERFND"]:
@@ -48,7 +49,7 @@ def get_sqlalchemy_connection(env):
             f"{db_config['server']}/{db_config['database']}"
         )
     # MS SQL Server
-    else: 
+    else:
         connection_url = (
             f"mssql+pyodbc://{db_config['username']}:{db_config['password']}@"
             f"{db_config['server']}/{db_config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
@@ -115,7 +116,9 @@ def main():
                             connection, fnd_list, target_date, start_time
                         )
                         with engine_qbt_api.connect() as connection_qbt_api:
-                            insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date)
+                            insert_fnd_list_data_to_qbt_api(
+                                connection, connection_qbt_api, target_date
+                            )
                     else:
                         log_message(f"No data fnd_list found for {target_date}.")
 

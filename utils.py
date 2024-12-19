@@ -143,7 +143,9 @@ def insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date)
             FROM TBL_REST_UNIVERSE_RECEIVE
             WHERE auth_id = :auth_id AND trddate = :trddate
         """)
-        result_1 = connection_qbt_api.execute(check_query_1, {"auth_id": "foss", "trddate": target_date}).scalar()
+        result_1 = connection_qbt_api.execute(
+            check_query_1, {"auth_id": "foss", "trddate": target_date}
+        ).scalar()
 
         if result_1 == 0:
             query_1 = text("""
@@ -172,18 +174,22 @@ def insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date)
                 if_exists="append",
                 index=False,
             )
-            log_message("Data successfully inserted into the table TBL_REST_UNIVERSE_RECEIVE.")
-        
+            log_message(
+                "Data successfully inserted into the table TBL_REST_UNIVERSE_RECEIVE."
+            )
+
         else:
             log_message("Data already exists in the table TBL_REST_UNIVERSE_RECEIVE.")
-        
+
         # TBL_REST_UNIVERSE_FOSS
         check_query_2 = text("""
             SELECT COUNT(*) AS cnt
             FROM TBL_REST_UNIVERSE_FOSS
             WHERE trddate = :trddate
         """)
-        result_2 = connection_qbt_api.execute(check_query_2, {"trddate": target_date}).scalar()
+        result_2 = connection_qbt_api.execute(
+            check_query_2, {"trddate": target_date}
+        ).scalar()
 
         if result_2 == 0:
             query_2 = text("""
@@ -198,8 +204,10 @@ def insert_fnd_list_data_to_qbt_api(connection, connection_qbt_api, target_date)
                 if_exists="append",
                 index=False,
             )
-            log_message("Data successfully inserted into the table TBL_REST_UNIVERSE_FOSS.")
-        
+            log_message(
+                "Data successfully inserted into the table TBL_REST_UNIVERSE_FOSS."
+            )
+
         else:
             log_message("Data already exists in the table TBL_REST_UNIVERSE_FOSS.")
 
