@@ -17,6 +17,9 @@ set script_file=main.py
 REM process_type 리스트 정의
 set process_types=DELETE_OLDDATA RECEIVE_UNIVERSE RECEIVE_ACCOUNT RECEIVE_CUSTMERFND
 
+REM 가상환경 활성화
+call D:\QBS_PROJECT\venv\Scripts\activate.bat
+
 REM process_type을 하나씩 실행
 for %%p in (%process_types%) do (
     echo [%date% %time%] Starting process_type: %%p >> "%log_file%"
