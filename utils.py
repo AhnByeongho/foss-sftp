@@ -520,7 +520,9 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
             )
 
             # CSV 파일 저장
-            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            local_file_path = (
+                f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
+            )
             final_df[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -624,7 +626,9 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
             )
 
             # CSV 파일 저장
-            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            local_file_path = (
+                f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
+            )
             final_df[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -777,7 +781,9 @@ def process_rebalcus(
                 )
 
             # CSV 파일 저장
-            local_file_path = f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+            local_file_path = (
+                f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
+            )
             final_rebalcus_data[["lst"]].to_csv(
                 local_file_path, index=False, header=False, encoding="utf-8"
             )
@@ -925,7 +931,7 @@ def process_report(connection, target_date, sftp_client, start_time):
 
                 # CSV 파일 저장
                 local_file_path = (
-                    f"/Users/mac/Downloads/{sSetFile}.csv"  # 로컬 경로 설정
+                    f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
                 )
                 insert_df[["lst"]].to_csv(
                     local_file_path, index=False, header=False, encoding="utf-8"
