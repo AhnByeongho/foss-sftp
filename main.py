@@ -76,7 +76,7 @@ def main():
 
         # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
         engine = get_sqlalchemy_connection(env="dev")
-        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_test")
+        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_dev")
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
