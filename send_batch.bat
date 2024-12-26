@@ -17,12 +17,15 @@ set script_file=main.py
 REM process_type 리스트 정의
 set process_types=SEND_MPRATE SEND_MPLIST SEND_REBALCUS SEND_REPORT SEND_MP_INFO_EOF
 
+REM 가상환경 Python 실행 경로 지정
+set python_exe=D:\QBS_PROJECT\foss-sftp\env\Scripts\python.exe
+
 REM process_type을 하나씩 실행
 for %%p in (%process_types%) do (
     echo [%date% %time%] Starting process_type: %%p >> "%log_file%"
     
     REM Python 스크립트 실행
-    python "%script_dir%\%script_file%" --target_date "%today_date%" --process_type "%%p" >> "%log_file%" 2>&1
+    "%python_exe%" "%script_dir%\%script_file%" --target_date "%today_date%" --process_type "%%p" >> "%log_file%" 2>&1
 
     REM 실행 결과 확인
     if errorlevel 1 (
