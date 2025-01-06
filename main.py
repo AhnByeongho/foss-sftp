@@ -27,13 +27,8 @@ with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
 
-# TODO: 운영에 batch 돌릴 때는 수정해야함
-def get_sftp_connection(process_type):
-    if process_type in ["RECEIVE_UNIVERSE", "RECEIVE_ACCOUNT", "RECEIVE_CUSTMERFND"]:
-        sftp_config = config["sftp"]["foss"]
-    else:
-        sftp_config = config["sftp"]["fossDev"]
-
+def get_sftp_connection():
+    sftp_config = config["sftp"]["foss"]
     transport = paramiko.Transport((sftp_config["host"], sftp_config["port"]))
     transport.connect(username=sftp_config["user"], password=sftp_config["password"])
     sftp = paramiko.SFTPClient.from_transport(transport)
@@ -72,11 +67,10 @@ def main():
 
     try:
         # SFTP 연결
-        sftp, transport = get_sftp_connection(process_type)
+        sftp, transport = get_sftp_connection()
 
-        # MSSQL 연결 TODO: 운영에 서버에 올릴 때는 수정해야함
-        engine = get_sqlalchemy_connection(env="dev")
-        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_dev")
+        engine = get_sqlalchemy_connection(env="prod")
+        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api")
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
