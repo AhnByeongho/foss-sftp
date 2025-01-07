@@ -524,7 +524,7 @@ def process_yesterday_return_data(connection, target_date, sftp_client, start_ti
                 f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
             )
             final_df[["lst"]].to_csv(
-                local_file_path, index=False, header=False, encoding="utf-8"
+                local_file_path, index=False, header=False, encoding="ascii"
             )
 
         # SFTP 경로 및 파일 설정
@@ -630,7 +630,7 @@ def process_mp_list(connection, target_date, sftp_client, start_time):
                 f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
             )
             final_df[["lst"]].to_csv(
-                local_file_path, index=False, header=False, encoding="utf-8"
+                local_file_path, index=False, header=False, encoding="euc-kr"
             )
 
         # SFTP 경로 및 파일 설정
@@ -785,7 +785,7 @@ def process_rebalcus(
                 f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
             )
             final_rebalcus_data[["lst"]].to_csv(
-                local_file_path, index=False, header=False, encoding="utf-8"
+                local_file_path, index=False, header=False, encoding="ascii"
             )
 
         # SFTP 경로 및 파일 설정
@@ -934,14 +934,14 @@ def process_report(connection, target_date, sftp_client, start_time):
                     f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
                 )
                 insert_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="utf-8"
+                    local_file_path, index=False, header=False, encoding="euc-kr"
                 )
 
             else:
                 local_file_path = (
                     f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
                 )
-                with open(local_file_path, "w", encoding="utf-8") as file:
+                with open(local_file_path, "w", encoding="euc-kr") as file:
                     file.write("")  # 빈 파일 생성
 
                 log_message(f"No report data found for {target_date}.")
@@ -1025,7 +1025,7 @@ def process_mp_info_eof(connection, target_date, sftp_client, start_time):
         local_file_path = f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
 
         # 빈 CSV 파일 생성
-        with open(local_file_path, "w", encoding="utf-8") as file:
+        with open(local_file_path, "w", encoding="euc-kr") as file:
             file.write("")  # 빈 파일 생성
 
         log_message(f"Empty EOF file created at: {local_file_path}")
