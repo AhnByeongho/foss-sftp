@@ -933,9 +933,9 @@ def process_report(connection, target_date, sftp_client, start_time):
                 local_file_path = (
                     f"D:/QBS_PROJECT/foss-sftp/{sSetFile}.csv"  # 로컬 경로 설정
                 )
-                insert_df[["lst"]].to_csv(
-                    local_file_path, index=False, header=False, encoding="euc-kr"
-                )
+                with open(local_file_path, "w", encoding="euc-kr") as file:
+                    for row in insert_df["lst"]:
+                        file.write(f"{row}\n")
 
             else:
                 local_file_path = (
