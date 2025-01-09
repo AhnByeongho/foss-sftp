@@ -2,8 +2,11 @@ import argparse
 import paramiko
 import json
 import os
+import sys
 from sqlalchemy import create_engine
 from datetime import datetime
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import (
     delete_old_bcp_data,
