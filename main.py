@@ -63,6 +63,15 @@ def main():
     parser.add_argument(
         "--process_type", required=True, help="Type of process to execute"
     )
+    parser.add_argument(
+        "--manual_customer_ids",
+        help="Comma-separated list of customer IDs for manual rebalancing",
+    )
+    parser.add_argument("--manual_rebal_yn", help="Manual rebalancing flag (Y or N)")
+    parser.add_argument(
+        "--forced_rebal_dates", help="Comma-separated list of forced rebalancing dates"
+    )
+
     args = parser.parse_args()
 
     target_date = args.target_date
@@ -161,17 +170,20 @@ def main():
 
                     # 리밸런싱 송신 처리
                     process_rebalcus(
-                        connection, target_date, sftp, start_time=start_time
+                        connection,
+                        target_date,
+                        sftp,
+                        start_time=start_time,
+                        manual_customer_ids=args.manual_customer_ids
+                        if hasattr(args, "manual_customer_ids")
+                        else None,
+                        manual_rebal_yn=args.manual_rebal_yn
+                        if hasattr(args, "manual_rebal_yn")
+                        else None,
+                        forced_rebal_dates=args.forced_rebal_dates
+                        if hasattr(args, "forced_rebal_dates")
+                        else None,
                     )
-
-                    # 강제 리밸런싱일자 설정
-                    # forced_rebal_dates = ["20231201", "20241201"]
-                    # process_rebalcus(connection, target_date, sftp, forced_rebal_dates=forced_rebal_dates, start_time=start_time)
-
-                    # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-                    # manual_customer_ids = ["10083", "10096", "10113"]
-                    # manual_rebal_yn = "Y"
-                    # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn, start_time=start_time)
 
                 # ------------------------------ 리포트 송신 처리 ------------------------------- #
                 elif process_type == "SEND_REPORT":  # report
