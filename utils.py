@@ -701,7 +701,7 @@ def process_rebalcus(
     start_time,
     manual_customer_ids=None,
     manual_rebal_yn=None,
-    forced_rebal_dates=None,
+    forced_rebal_date=None,
 ):
     """
     Processes the Rebalancing Customer data, generates a CSV file, inserts data into the TBL_FOSS_BCPDATA table,
@@ -743,13 +743,6 @@ def process_rebalcus(
                 connection, target_date, i_opent_day
             )
 
-            # 강제 리밸런싱 날짜 (Disable된 상태, 필요한 경우만 활성화)
-            current_date = datetime.now().strftime("%Y%m%d")
-            if forced_rebal_dates is not None:
-                if current_date in forced_rebal_dates:
-                    sRebalDayYN = "Y"
-                    sRebalDayYN2 = "Y"
-
             # TBL_FOSS_CUSTOMERACCOUNT에서 데이터 조회 및 처리
             pension_data = fetch_rebalcus_data(
                 connection, target_date, "77", sRebalDayYN, next_rebal_date, sSetFile
@@ -770,12 +763,17 @@ def process_rebalcus(
             )
 
             # 수동 리벨런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-            if manual_customer_ids is not None and manual_rebal_yn is not None:
+            if (
+                manual_customer_ids is not None
+                and manual_rebal_yn is not None
+                and forced_rebal_date is not None
+            ):
                 update_manual_rebalancing(
                     connection,
                     final_rebalcus_data,
                     manual_customer_ids,
                     manual_rebal_yn,
+                    forced_rebal_date,
                     target_date,
                     sSetFile,
                 )
@@ -1462,12 +1460,17 @@ def update_manual_rebalancing(
     final_rebalcus_data,
     manual_customer_ids,
     manual_rebal_yn,
+    forced_rebal_date,
     target_date,
     sSetFile,
 ):
+    # TBL_FOSS_REBAL_CUSTOMER에 들어갈 dataframe
+    rebal_cus_df = pd.DataFrame(
+        columns=["rebaldate", "customer_id", "regdate", "rebal_yn"]
+    )
     for customer_id in manual_customer_ids:
         # 업데이트할 lst 값 생성
-        updated_lst_value = f"{customer_id};{manual_rebal_yn};{target_date};"
+        updated_lst_value = f"{customer_id};{manual_rebal_yn};{forced_rebal_date};"
 
         # 데이터프레임 내 업데이트
         final_rebalcus_data.loc[
@@ -1492,8 +1495,25 @@ def update_manual_rebalancing(
                 "customer_id_prefix": f"{customer_id}%;",
             },
         )
+
+        new_row = {
+            "rebaldate": forced_rebal_date,
+            "customer_id": customer_id,
+            "regdate": target_date,
+            "rebal_yn": manual_rebal_yn,
+        }
+        rebal_cus_df = rebal_cus_df.append(new_row, ignore_index=True)
+
     log_message(
         f"Manual rebalancing applied and updated in TBL_FOSS_BCPDATA for customers: {manual_customer_ids}"
+    )
+
+    # TBL_FOSS_REBAL_CUSTOMER 테이블에 데이터 삽입
+    rebal_cus_df.to_sql(
+        name="TBL_FOSS_REBAL_CUSTOMER", con=connection, if_exists="append", index=False
+    )
+    log_message(
+        f"Manual rebalancing data inserted into TBL_FOSS_REBAL_CUSTOMER for customers: {manual_customer_ids}"
     )
 
 
