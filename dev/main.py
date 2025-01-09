@@ -27,8 +27,11 @@ with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
 
-def get_sftp_connection():
-    sftp_config = config["sftp"]["foss"]
+def get_sftp_connection(process_type):
+    if process_type in ["RECEIVE_UNIVERSE", "RECEIVE_ACCOUNT", "RECEIVE_CUSTMERFND"]:
+        sftp_config = config["sftp"]["foss"]
+    else:
+        sftp_config = config["sftp"]["fossDev"]
     transport = paramiko.Transport((sftp_config["host"], sftp_config["port"]))
     transport.connect(username=sftp_config["user"], password=sftp_config["password"])
     sftp = paramiko.SFTPClient.from_transport(transport)
@@ -60,6 +63,13 @@ def main():
     parser.add_argument(
         "--process_type", required=True, help="Type of process to execute"
     )
+    parser.add_argument(
+        "--manual_customer_ids",
+        help="Comma-separated list of customer IDs for manual rebalancing",
+    )
+    parser.add_argument("--manual_rebal_yn", help="Manual rebalancing flag (Y or N)")
+    parser.add_argument("--forced_rebal_date", help="Forced rebalancing date")
+
     args = parser.parse_args()
 
     target_date = args.target_date
@@ -67,10 +77,10 @@ def main():
 
     try:
         # SFTP 연결
-        sftp, transport = get_sftp_connection()
+        sftp, transport = get_sftp_connection(process_type)
 
-        engine = get_sqlalchemy_connection(env="prod")
-        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api")
+        engine = get_sqlalchemy_connection(env="dev")
+        engine_qbt_api = get_sqlalchemy_connection(env="qbt_api_dev")
 
         # 엔진에서 연결 생성
         with engine.connect() as connection:
@@ -158,17 +168,20 @@ def main():
 
                     # 리밸런싱 송신 처리
                     process_rebalcus(
-                        connection, target_date, sftp, start_time=start_time
+                        connection,
+                        target_date,
+                        sftp,
+                        start_time=start_time,
+                        manual_customer_ids=args.manual_customer_ids
+                        if hasattr(args, "manual_customer_ids")
+                        else None,
+                        manual_rebal_yn=args.manual_rebal_yn
+                        if hasattr(args, "manual_rebal_yn")
+                        else None,
+                        forced_rebal_date=args.forced_rebal_date
+                        if hasattr(args, "forced_rebal_date")
+                        else None,
                     )
-
-                    # 강제 리밸런싱일자 설정
-                    # forced_rebal_dates = ["20231201", "20241201"]
-                    # process_rebalcus(connection, target_date, sftp, forced_rebal_dates=forced_rebal_dates, start_time=start_time)
-
-                    # 수동 리밸런싱 (특정 일자에 해당 고객만 강제 리밸런싱)
-                    # manual_customer_ids = ["10083", "10096", "10113"]
-                    # manual_rebal_yn = "Y"
-                    # process_rebalcus(connection, target_date, sftp, manual_customer_ids=manual_customer_ids, manual_rebal_yn=manual_rebal_yn, start_time=start_time)
 
                 # ------------------------------ 리포트 송신 처리 ------------------------------- #
                 elif process_type == "SEND_REPORT":  # report
