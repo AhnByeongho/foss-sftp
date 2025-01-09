@@ -68,9 +68,7 @@ def main():
         help="Comma-separated list of customer IDs for manual rebalancing",
     )
     parser.add_argument("--manual_rebal_yn", help="Manual rebalancing flag (Y or N)")
-    parser.add_argument(
-        "--forced_rebal_dates", help="Comma-separated list of forced rebalancing dates"
-    )
+    parser.add_argument("--forced_rebal_date", help="Forced rebalancing date")
 
     args = parser.parse_args()
 
@@ -180,8 +178,8 @@ def main():
                         manual_rebal_yn=args.manual_rebal_yn
                         if hasattr(args, "manual_rebal_yn")
                         else None,
-                        forced_rebal_dates=args.forced_rebal_dates
-                        if hasattr(args, "forced_rebal_dates")
+                        forced_rebal_date=args.forced_rebal_date
+                        if hasattr(args, "forced_rebal_date")
                         else None,
                     )
 
